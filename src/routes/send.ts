@@ -26,28 +26,28 @@ router.post("/send", async (req: Request, res: Response) => {
     }
 
     const data = parsed.data;
+    const orgId = res.locals.orgId as string;
+    const userId = res.locals.userId as string;
     let runId: string | undefined;
 
-    // Create run in runs-service if orgId is provided (BLOCKING)
-    if (data.orgId) {
-      try {
-        const run = await createRun({
-          clerkOrgId: data.orgId,
-          appId: data.appId || "twilio-service",
-          serviceName: "twilio-service",
-          taskName: "send-sms",
-          parentRunId: data.runId,
-          brandId: data.brandId,
-          campaignId: data.campaignId,
-        });
-        runId = run.id;
-      } catch (err) {
-        console.error("Failed to create run:", err);
-        return res.status(500).json({
-          error: "Failed to create run in runs-service",
-          message: err instanceof Error ? err.message : "Unknown error",
-        });
-      }
+    // Create run in runs-service (BLOCKING)
+    try {
+      const run = await createRun({
+        orgId,
+        userId,
+        serviceName: "twilio-service",
+        taskName: "send-sms",
+        parentRunId: data.parentRunId,
+        brandId: data.brandId,
+        campaignId: data.campaignId,
+      });
+      runId = run.id;
+    } catch (err) {
+      console.error("Failed to create run:", err);
+      return res.status(500).json({
+        error: "Failed to create run in runs-service",
+        message: err instanceof Error ? err.message : "Unknown error",
+      });
     }
 
     // Determine "from" number
@@ -80,10 +80,10 @@ router.post("/send", async (req: Request, res: Response) => {
       .insert(twilioSendings)
       .values({
         messageSid: result.messageSid!,
-        orgId: data.orgId,
-        runId: data.runId,
+        orgId,
+        userId,
+        runId: data.parentRunId,
         brandId: data.brandId,
-        appId: data.appId,
         campaignId: data.campaignId,
         from: fromNumber,
         to: data.to,
@@ -102,7 +102,7 @@ router.post("/send", async (req: Request, res: Response) => {
           ? parseInt(result.numSegments, 10)
           : 1;
         await addCosts(runId, [
-          { costName: "twilio-sms-segment", quantity: segments },
+          { costName: "twilio-sms-segment", costSource: "platform", quantity: segments },
         ]);
         await updateRun(runId, "completed");
       } catch (err) {
@@ -139,6 +139,8 @@ router.post("/send/batch", async (req: Request, res: Response) => {
     }
 
     const { messages } = parsed.data;
+    const orgId = res.locals.orgId as string;
+    const userId = res.locals.userId as string;
     const results = [];
     let totalSent = 0;
     let totalFailed = 0;
@@ -146,24 +148,22 @@ router.post("/send/batch", async (req: Request, res: Response) => {
     for (const msg of messages) {
       let runId: string | undefined;
 
-      if (msg.orgId) {
-        try {
-          const run = await createRun({
-            clerkOrgId: msg.orgId,
-            appId: msg.appId || "twilio-service",
-            serviceName: "twilio-service",
-            taskName: "send-sms",
-            parentRunId: msg.runId,
-            brandId: msg.brandId,
-            campaignId: msg.campaignId,
-          });
-          runId = run.id;
-        } catch (err) {
-          console.error("Failed to create run for batch item:", err);
-          results.push({ success: false });
-          totalFailed++;
-          continue;
-        }
+      try {
+        const run = await createRun({
+          orgId,
+          userId,
+          serviceName: "twilio-service",
+          taskName: "send-sms",
+          parentRunId: msg.parentRunId,
+          brandId: msg.brandId,
+          campaignId: msg.campaignId,
+        });
+        runId = run.id;
+      } catch (err) {
+        console.error("Failed to create run for batch item:", err);
+        results.push({ success: false });
+        totalFailed++;
+        continue;
       }
 
       const fromNumber = msg.from || getFromNumber(msg.project);
@@ -181,10 +181,10 @@ router.post("/send/batch", async (req: Request, res: Response) => {
           .insert(twilioSendings)
           .values({
             messageSid: result.messageSid!,
-            orgId: msg.orgId,
-            runId: msg.runId,
+            orgId,
+            userId,
+            runId: msg.parentRunId,
             brandId: msg.brandId,
-            appId: msg.appId,
             campaignId: msg.campaignId,
             from: fromNumber,
             to: msg.to,
@@ -202,7 +202,7 @@ router.post("/send/batch", async (req: Request, res: Response) => {
               ? parseInt(result.numSegments, 10)
               : 1;
             await addCosts(runId, [
-              { costName: "twilio-sms-segment", quantity: segments },
+              { costName: "twilio-sms-segment", costSource: "platform", quantity: segments },
             ]);
             await updateRun(runId, "completed");
           } catch (err) {

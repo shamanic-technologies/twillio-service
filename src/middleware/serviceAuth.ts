@@ -41,5 +41,26 @@ export function serviceAuth(req: Request, res: Response, next: NextFunction) {
     });
   }
 
+  // Extract and validate identity headers
+  const orgId = req.headers["x-org-id"];
+  const userId = req.headers["x-user-id"];
+
+  if (!orgId || typeof orgId !== "string") {
+    return res.status(400).json({
+      error: "Missing required header",
+      message: "x-org-id header is required",
+    });
+  }
+
+  if (!userId || typeof userId !== "string") {
+    return res.status(400).json({
+      error: "Missing required header",
+      message: "x-user-id header is required",
+    });
+  }
+
+  res.locals.orgId = orgId;
+  res.locals.userId = userId;
+
   next();
 }
