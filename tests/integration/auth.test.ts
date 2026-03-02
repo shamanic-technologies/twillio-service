@@ -32,13 +32,46 @@ describe("Service authentication", () => {
     expect(res.body.error).toBe("Invalid API key");
   });
 
-  it("should allow requests with valid API key", async () => {
+  it("should reject requests with valid API key but missing identity headers", async () => {
     const res = await request(app)
       .post("/send")
       .set("X-API-Key", "test-secret-key")
       .send({ to: "+15559876543", body: "test" });
-    // Should get 400 (validation error) not 401/403 — auth passed
     expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Missing required header");
+  });
+
+  it("should reject requests missing x-org-id header", async () => {
+    const res = await request(app)
+      .post("/send")
+      .set("X-API-Key", "test-secret-key")
+      .set("X-User-Id", "user-uuid-123")
+      .send({ parentRunId: "run-1", to: "+15559876543", body: "test" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain("x-org-id");
+  });
+
+  it("should reject requests missing x-user-id header", async () => {
+    const res = await request(app)
+      .post("/send")
+      .set("X-API-Key", "test-secret-key")
+      .set("X-Org-Id", "org-uuid-123")
+      .send({ parentRunId: "run-1", to: "+15559876543", body: "test" });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toContain("x-user-id");
+  });
+
+  it("should pass auth with valid API key and identity headers", async () => {
+    const res = await request(app)
+      .post("/send")
+      .set("X-API-Key", "test-secret-key")
+      .set("X-Org-Id", "org-uuid-123")
+      .set("X-User-Id", "user-uuid-123")
+      .send({ parentRunId: "run-1", to: "+15559876543", body: "test" });
+    // Should get past auth — 400 (validation) or 500 (no DB), not 401/403
+    expect(res.body.error).not.toBe("Missing API key");
+    expect(res.body.error).not.toBe("Invalid API key");
+    expect(res.body.error).not.toBe("Missing required header");
   });
 
   it("should allow unauthenticated access to webhook endpoints", async () => {

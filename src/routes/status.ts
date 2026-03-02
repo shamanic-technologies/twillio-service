@@ -105,14 +105,11 @@ router.post("/stats", async (req: Request, res: Response) => {
     if (filters.runIds && filters.runIds.length > 0) {
       conditions.push(inArray(twilioSendings.runId, filters.runIds));
     }
-    if (filters.clerkOrgId) {
-      conditions.push(eq(twilioSendings.orgId, filters.clerkOrgId));
+    if (filters.orgId) {
+      conditions.push(eq(twilioSendings.orgId, filters.orgId));
     }
     if (filters.brandId) {
       conditions.push(eq(twilioSendings.brandId, filters.brandId));
-    }
-    if (filters.appId) {
-      conditions.push(eq(twilioSendings.appId, filters.appId));
     }
     if (filters.campaignId) {
       conditions.push(eq(twilioSendings.campaignId, filters.campaignId));

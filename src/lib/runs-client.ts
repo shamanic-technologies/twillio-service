@@ -37,18 +37,18 @@ export interface RunCost {
 }
 
 export interface CreateRunParams {
-  clerkOrgId: string;
-  appId: string;
+  orgId: string;
   serviceName: string;
   taskName: string;
   parentRunId?: string;
-  clerkUserId?: string;
+  userId?: string;
   brandId?: string;
   campaignId?: string;
 }
 
 export interface CostItem {
   costName: string;
+  costSource: "platform" | "org";
   quantity: number;
 }
 
@@ -86,7 +86,10 @@ async function runsRequest<T>(
 export async function createRun(params: CreateRunParams): Promise<Run> {
   return runsRequest<Run>("/v1/runs", {
     method: "POST",
-    body: params,
+    body: {
+      ...params,
+      appId: "twilio-service",
+    },
   });
 }
 

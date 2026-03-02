@@ -20,16 +20,8 @@ registry.registerComponent("securitySchemes", "apiKey", {
 
 export const SendSmsRequestSchema = z
   .object({
-    orgId: z
-      .string()
-      .optional()
-      .openapi({
-        description:
-          "Clerk organization ID (optional for admin/lifecycle messages)",
-      }),
-    runId: z.string().openapi({ description: "Parent run ID" }),
+    parentRunId: z.string().openapi({ description: "Parent run ID" }),
     brandId: z.string().optional().openapi({ description: "Brand ID" }),
-    appId: z.string().optional().openapi({ description: "App ID" }),
     campaignId: z
       .string()
       .optional()
@@ -117,9 +109,9 @@ export const SmsStatusResponseSchema = z
         id: z.string(),
         messageSid: z.string(),
         orgId: z.string().nullable(),
+        userId: z.string().nullable(),
         runId: z.string().nullable(),
         brandId: z.string().nullable(),
-        appId: z.string().nullable(),
         campaignId: z.string().nullable(),
         from: z.string(),
         to: z.string(),
@@ -155,9 +147,8 @@ export type SmsStatusResponse = z.infer<typeof SmsStatusResponseSchema>;
 export const StatsRequestSchema = z
   .object({
     runIds: z.array(z.string()).optional(),
-    clerkOrgId: z.string().optional(),
+    orgId: z.string().optional(),
     brandId: z.string().optional(),
-    appId: z.string().optional(),
     campaignId: z.string().optional(),
   })
   .openapi("StatsRequest");
@@ -380,7 +371,7 @@ registry.registerPath({
   path: "/stats",
   summary: "Get aggregated SMS stats",
   description:
-    "Get aggregated statistics with filters (runIds, clerkOrgId, brandId, appId, campaignId).",
+    "Get aggregated statistics with filters (runIds, orgId, brandId, campaignId).",
   tags: ["SMS Status"],
   security: [{ apiKey: [] }],
   request: {

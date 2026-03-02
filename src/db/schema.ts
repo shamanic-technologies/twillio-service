@@ -17,9 +17,9 @@ export const twilioSendings = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     messageSid: text("message_sid").notNull().unique(),
     orgId: text("org_id"),
+    userId: text("user_id"),
     runId: text("run_id"),
     brandId: text("brand_id"),
-    appId: text("app_id"),
     campaignId: text("campaign_id"),
     from: text("from").notNull(),
     to: text("to").notNull(),
@@ -41,9 +41,9 @@ export const twilioSendings = pgTable(
   (table) => [
     index("twilio_sendings_message_sid_idx").on(table.messageSid),
     index("twilio_sendings_org_id_idx").on(table.orgId),
+    index("twilio_sendings_user_id_idx").on(table.userId),
     index("twilio_sendings_run_id_idx").on(table.runId),
     index("twilio_sendings_brand_id_idx").on(table.brandId),
-    index("twilio_sendings_app_id_idx").on(table.appId),
     index("twilio_sendings_campaign_id_idx").on(table.campaignId),
   ]
 );
