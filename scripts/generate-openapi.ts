@@ -23,7 +23,7 @@ const document = generator.generateDocument({
     {
       name: "WhatsApp",
       description:
-        "Inbound/outbound WhatsApp bridged to the dashboard-chat agent",
+        "Inbound/outbound WhatsApp bridged to the chat-service agent",
     },
     { name: "Webhooks", description: "Twilio webhook handlers" },
   ],

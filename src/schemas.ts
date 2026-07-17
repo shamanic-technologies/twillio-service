@@ -478,7 +478,7 @@ registry.registerPath({
   path: "/webhooks/twilio/whatsapp",
   summary: "Inbound WhatsApp webhook",
   description:
-    "Receives inbound WhatsApp messages from Twilio. Resolves the sender to a platform account (provisioning via client-service if unknown), forwards to the dashboard-chat agent, and replies over WhatsApp. Twilio-signed (no X-API-Key).",
+    "Receives inbound WhatsApp messages from Twilio. Resolves the sender to a platform account (provisioning via client-service if unknown), forwards to the chat-service agent (the same brain the dashboard uses), and replies over WhatsApp. Twilio-signed (no X-API-Key).",
   tags: ["WhatsApp"],
   request: {
     body: {
