@@ -9,7 +9,7 @@ import {
   normalizeWhatsAppPhone,
   validateWebhookSignature,
 } from "../lib/twilio-client";
-import { runDashboardChat } from "../lib/agent-client";
+import { runChat } from "../lib/chat-client";
 import { resolveOrProvisionAccountByPhone } from "../lib/client-client";
 import { createRun, updateRun, addCosts } from "../lib/runs-client";
 import { SendWhatsAppRequestSchema } from "../schemas";
@@ -29,12 +29,12 @@ export interface InboundWhatsAppPayload {
 
 /**
  * Core inbound orchestration (exported for testing):
- *   resolve/provision account → track run → forward to dashboard-chat agent →
+ *   resolve/provision account → track run → forward to chat-service agent →
  *   persist session → reply over WhatsApp → complete run.
  *
  * This is the thin adapter: it contains no agent logic and no Clerk/credit
- * provisioning — it bridges the WhatsApp message to agent-service and delivers
- * the agent's reply back to the sender.
+ * provisioning — it bridges the WhatsApp message to chat-service (the same
+ * agentic brain the dashboard uses) and delivers the reply back to the sender.
  */
 export async function handleInboundWhatsApp(
   payload: InboundWhatsAppPayload
@@ -98,8 +98,10 @@ export async function handleInboundWhatsApp(
       where: eq(whatsappSessions.phone, phone),
     });
 
-    // 4. Forward to the dashboard-chat (Foxy) agent and get its reply.
-    const agentResult = await runDashboardChat({
+    // 4. Forward to the chat-service agent (same brain as the dashboard) and
+    //    get its reply. Scoped to the resolved org/user; the run id lets
+    //    chat-service meter the LLM cost against this org's balance.
+    const agentResult = await runChat({
       message: payload.body,
       orgId,
       userId,
@@ -113,7 +115,7 @@ export async function handleInboundWhatsApp(
       },
     });
 
-    // 5. Persist the (possibly new) session id.
+    // 5. Persist the (possibly new) chat-service session id for continuity.
     if (agentResult.sessionId) {
       if (session) {
         await db
@@ -217,8 +219,8 @@ router.post("/webhooks/twilio/whatsapp", async (req: Request, res: Response) => 
 
 // ─── POST /send/whatsapp ────────────────────────────────────────────────────
 // Outbound WhatsApp send. Service-authed (X-API-Key + identity headers) — usable
-// by agent-service or any service to push a WhatsApp message to a user. Mirrors
-// the SMS /send path: create run → send → record → cost → complete run.
+// by any service to push a WhatsApp message to a user. Mirrors the SMS /send
+// path: create run → send → record → cost → complete run.
 
 router.post("/send/whatsapp", async (req: Request, res: Response) => {
   try {
@@ -298,7 +300,7 @@ router.post("/send/whatsapp", async (req: Request, res: Response) => {
       try {
         // The Twilio WhatsApp per-message fee is declared only when its
         // costs-service catalog row exists (name provided via env). Until then
-        // the run is still tracked; the LLM spend is declared by agent-service.
+        // the run is still tracked; the LLM spend is declared by chat-service.
         const costName = process.env.TWILIO_WHATSAPP_COST_NAME;
         if (costName) {
           await addCosts(runId, [

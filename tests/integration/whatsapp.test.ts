@@ -22,7 +22,7 @@ const h = vi.hoisted(() => {
     insert: vi.fn(() => chain([{ id: "rec-1" }])),
     update: vi.fn(() => chain([])),
     resolveOrProvision: vi.fn(),
-    runDashboardChat: vi.fn(),
+    runChat: vi.fn(),
     sendWhatsApp: vi.fn(),
     createRun: vi.fn(),
     updateRun: vi.fn(),
@@ -45,8 +45,8 @@ vi.mock("../../src/lib/client-client", () => ({
   resolveOrProvisionAccountByPhone: h.resolveOrProvision,
 }));
 
-vi.mock("../../src/lib/agent-client", () => ({
-  runDashboardChat: h.runDashboardChat,
+vi.mock("../../src/lib/chat-client", () => ({
+  runChat: h.runChat,
 }));
 
 vi.mock("../../src/lib/runs-client", () => ({
@@ -72,7 +72,7 @@ const app = createTestApp();
 function primeHappyPath() {
   h.createRun.mockResolvedValue({ id: "run-1" });
   h.findFirstSession.mockResolvedValue(undefined);
-  h.runDashboardChat.mockResolvedValue({
+  h.runChat.mockResolvedValue({
     sessionId: "sess-1",
     reply: "Hi, I'm Foxy 👋",
   });
@@ -120,8 +120,8 @@ describe("handleInboundWhatsApp", () => {
         taskName: "whatsapp-inbound",
       })
     );
-    // Forwarded to the dashboard-chat agent, scoped to the resolved account.
-    expect(h.runDashboardChat).toHaveBeenCalledWith(
+    // Forwarded to the chat-service agent, scoped to the resolved account.
+    expect(h.runChat).toHaveBeenCalledWith(
       expect.objectContaining({
         message: "hello",
         orgId: "org-new",
@@ -153,7 +153,7 @@ describe("handleInboundWhatsApp", () => {
     });
 
     expect(h.resolveOrProvision).not.toHaveBeenCalled();
-    expect(h.runDashboardChat).toHaveBeenCalledWith(
+    expect(h.runChat).toHaveBeenCalledWith(
       expect.objectContaining({ orgId: "org-known", userId: "user-known" })
     );
     expect(h.sendWhatsApp).toHaveBeenCalled();
@@ -169,7 +169,7 @@ describe("handleInboundWhatsApp", () => {
     });
     h.createRun.mockResolvedValue({ id: "run-err" });
     h.findFirstSession.mockResolvedValue(undefined);
-    h.runDashboardChat.mockRejectedValue(new Error("agent down"));
+    h.runChat.mockRejectedValue(new Error("agent down"));
     h.updateRun.mockResolvedValue({});
 
     await expect(

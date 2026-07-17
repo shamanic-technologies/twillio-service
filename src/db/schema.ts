@@ -115,11 +115,11 @@ export const whatsappUsers = pgTable(
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// WhatsApp Sessions — phone ↔ agent-service conversation session
+// WhatsApp Sessions — phone ↔ chat-service conversation session
 //
-// Keeps conversation continuity: the sessionId returned by agent-service's
-// dashboard-chat agent is stored per phone so follow-up messages resume the
-// same conversation instead of starting fresh.
+// Keeps conversation continuity: the sessionId returned by chat-service's
+// agentic chat (POST /chat) is stored per phone so follow-up messages resume
+// the same conversation instead of starting fresh.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export const whatsappSessions = pgTable(
