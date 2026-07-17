@@ -65,7 +65,7 @@ router.post("/send", async (req: Request, res: Response) => {
     if (!result.success) {
       // Mark run as failed if we created one
       if (runId) {
-        await updateRun(runId, "failed", result.errorMessage).catch(
+        await updateRun(runId, "failed", { orgId, userId }, result.errorMessage).catch(
           console.error
         );
       }
@@ -101,10 +101,12 @@ router.post("/send", async (req: Request, res: Response) => {
         const segments = result.numSegments
           ? parseInt(result.numSegments, 10)
           : 1;
-        await addCosts(runId, [
-          { costName: "twilio-sms-segment", costSource: "platform", quantity: segments },
-        ]);
-        await updateRun(runId, "completed");
+        await addCosts(
+          runId,
+          [{ costName: "twilio-sms-segment", costSource: "platform", quantity: segments }],
+          { orgId, userId }
+        );
+        await updateRun(runId, "completed", { orgId, userId });
       } catch (err) {
         console.error("Failed to add costs/complete run:", err);
       }
@@ -201,10 +203,12 @@ router.post("/send/batch", async (req: Request, res: Response) => {
             const segments = result.numSegments
               ? parseInt(result.numSegments, 10)
               : 1;
-            await addCosts(runId, [
-              { costName: "twilio-sms-segment", costSource: "platform", quantity: segments },
-            ]);
-            await updateRun(runId, "completed");
+            await addCosts(
+              runId,
+              [{ costName: "twilio-sms-segment", costSource: "platform", quantity: segments }],
+              { orgId, userId }
+            );
+            await updateRun(runId, "completed", { orgId, userId });
           } catch (err) {
             console.error("Failed to add costs/complete run:", err);
           }
@@ -220,7 +224,7 @@ router.post("/send/batch", async (req: Request, res: Response) => {
         totalSent++;
       } else {
         if (runId) {
-          await updateRun(runId, "failed", result.errorMessage).catch(
+          await updateRun(runId, "failed", { orgId, userId }, result.errorMessage).catch(
             console.error
           );
         }
