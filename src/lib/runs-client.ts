@@ -52,6 +52,20 @@ export interface CostItem {
   quantity: number;
 }
 
+// The deployed runs-service resolves identity from HEADERS (x-org-id required,
+// x-user-id optional) on EVERY run-scoped call — status update + cost add too,
+// not just create — even though the OpenAPI doc omits it on those routes.
+export interface RunIdentity {
+  orgId: string;
+  userId?: string;
+}
+
+function identityHeaders(identity: RunIdentity): Record<string, string> {
+  const headers: Record<string, string> = { "x-org-id": identity.orgId };
+  if (identity.userId) headers["x-user-id"] = identity.userId;
+  return headers;
+}
+
 // --- HTTP helpers ---
 
 async function runsRequest<T>(
@@ -105,20 +119,24 @@ export async function createRun(params: CreateRunParams): Promise<Run> {
 export async function updateRun(
   runId: string,
   status: "completed" | "failed",
+  identity: RunIdentity,
   error?: string
 ): Promise<Run> {
   return runsRequest<Run>(`/v1/runs/${runId}`, {
     method: "PATCH",
+    headers: identityHeaders(identity),
     body: { status, error },
   });
 }
 
 export async function addCosts(
   runId: string,
-  items: CostItem[]
+  items: CostItem[],
+  identity: RunIdentity
 ): Promise<{ costs: RunCost[] }> {
   return runsRequest<{ costs: RunCost[] }>(`/v1/runs/${runId}/costs`, {
     method: "POST",
+    headers: identityHeaders(identity),
     body: { items },
   });
 }
