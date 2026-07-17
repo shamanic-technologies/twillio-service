@@ -20,6 +20,11 @@ const document = generator.generateDocument({
     { name: "Health", description: "Health check endpoints" },
     { name: "SMS Sending", description: "Send SMS via Twilio" },
     { name: "SMS Status", description: "Query SMS delivery status" },
+    {
+      name: "WhatsApp",
+      description:
+        "Inbound/outbound WhatsApp bridged to the chat-service agent",
+    },
     { name: "Webhooks", description: "Twilio webhook handlers" },
   ],
 });
