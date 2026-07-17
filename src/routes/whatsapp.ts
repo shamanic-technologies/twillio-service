@@ -41,6 +41,9 @@ router.use(WHATSAPP_WEBHOOK_PATH, express.urlencoded({ extended: false }));
 
 export interface InboundWhatsAppPayload {
   from: string; // Twilio "From", e.g. "whatsapp:+14155551234"
+  to?: string; // Twilio "To" — the exact channel address Twilio delivered to,
+  // e.g. "whatsapp:+17372324091". Reply MUST go back FROM this address, else
+  // Twilio 63007 "could not find a Channel with the specified From address".
   body: string;
   messageSid: string;
   waId?: string;
@@ -150,10 +153,18 @@ export async function handleInboundWhatsApp(
       }
     }
 
-    // 6. Deliver the agent's reply back over WhatsApp.
+    // 6. Deliver the agent's reply back over WhatsApp. Reply FROM the exact
+    //    channel address Twilio delivered the inbound message TO (the webhook
+    //    "To") — that's the live sender (sandbox now, prod sender later). Using
+    //    a hardcoded constant that doesn't match the delivering channel yields
+    //    Twilio 63007. Fall back to the code constant only if "To" is absent.
+    const replyFrom = payload.to
+      ? normalizeWhatsAppPhone(payload.to)
+      : getWhatsAppFromNumber();
+
     if (agentResult.reply) {
       const sendResult = await sendWhatsApp({
-        from: getWhatsAppFromNumber(),
+        from: replyFrom,
         to: phone,
         body: agentResult.reply,
       });
@@ -165,7 +176,7 @@ export async function handleInboundWhatsApp(
           orgId,
           userId,
           runId: run.id,
-          from: getWhatsAppFromNumber(),
+          from: replyFrom,
           to: phone,
           body: agentResult.reply,
           status: sendResult.status || "queued",
@@ -177,11 +188,14 @@ export async function handleInboundWhatsApp(
     }
 
     // 7. Complete the run.
-    await updateRun(run.id, "completed");
+    await updateRun(run.id, "completed", { orgId, userId });
   } catch (err) {
-    await updateRun(run.id, "failed", err instanceof Error ? err.message : undefined).catch(
-      console.error
-    );
+    await updateRun(
+      run.id,
+      "failed",
+      { orgId, userId },
+      err instanceof Error ? err.message : undefined
+    ).catch(console.error);
     throw err;
   }
 }
@@ -210,6 +224,7 @@ router.post("/webhooks/twilio/whatsapp", async (req: Request, res: Response) => 
     }
 
     const From = req.body?.From as string | undefined;
+    const To = req.body?.To as string | undefined;
     const Body = req.body?.Body as string | undefined;
     const MessageSid = req.body?.MessageSid as string | undefined;
     const WaId = req.body?.WaId as string | undefined;
@@ -225,6 +240,7 @@ router.post("/webhooks/twilio/whatsapp", async (req: Request, res: Response) => 
     // Fire-and-forget: never block the webhook response on the agent turn.
     handleInboundWhatsApp({
       from: From,
+      to: To,
       body: Body,
       messageSid: MessageSid,
       waId: WaId,
@@ -289,7 +305,7 @@ router.post("/send/whatsapp", async (req: Request, res: Response) => {
 
     if (!result.success) {
       if (runId) {
-        await updateRun(runId, "failed", result.errorMessage).catch(
+        await updateRun(runId, "failed", { orgId, userId }, result.errorMessage).catch(
           console.error
         );
       }
@@ -324,10 +340,12 @@ router.post("/send/whatsapp", async (req: Request, res: Response) => {
         // The Twilio WhatsApp per-message fee (platform-billed). The cost name
         // is code-owned and byte-equal to the costs-service catalog row; the LLM
         // spend is declared separately by chat-service.
-        await addCosts(runId, [
-          { costName: WHATSAPP_COST_NAME, costSource: "platform", quantity: 1 },
-        ]);
-        await updateRun(runId, "completed");
+        await addCosts(
+          runId,
+          [{ costName: WHATSAPP_COST_NAME, costSource: "platform", quantity: 1 }],
+          { orgId, userId }
+        );
+        await updateRun(runId, "completed", { orgId, userId });
       } catch (err) {
         console.error("Failed to add costs/complete run:", err);
       }

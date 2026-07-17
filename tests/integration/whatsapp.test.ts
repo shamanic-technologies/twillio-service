@@ -105,6 +105,7 @@ describe("handleInboundWhatsApp", () => {
 
     await handleInboundWhatsApp({
       from: "whatsapp:+14155551234",
+      to: "whatsapp:+17372324091",
       body: "hello",
       messageSid: "SM1",
       profileName: "Kevin",
@@ -132,12 +133,21 @@ describe("handleInboundWhatsApp", () => {
         runId: "run-1",
       })
     );
-    // Reply delivered back over WhatsApp to the sender.
+    // Reply delivered back over WhatsApp to the sender, FROM the exact channel
+    // Twilio delivered the inbound message TO (the webhook "To"), so Twilio
+    // finds the sending channel (no 63007).
     expect(h.sendWhatsApp).toHaveBeenCalledWith(
-      expect.objectContaining({ to: "+14155551234", body: "Hi, I'm Foxy 👋" })
+      expect.objectContaining({
+        from: "+17372324091",
+        to: "+14155551234",
+        body: "Hi, I'm Foxy 👋",
+      })
     );
-    // Run completed.
-    expect(h.updateRun).toHaveBeenCalledWith("run-1", "completed");
+    // Run completed, carrying the org/user identity headers runs-service needs.
+    expect(h.updateRun).toHaveBeenCalledWith("run-1", "completed", {
+      orgId: "org-new",
+      userId: "user-new",
+    });
   });
 
   it("resolves a KNOWN number instantly without provisioning", async () => {
@@ -159,8 +169,14 @@ describe("handleInboundWhatsApp", () => {
     expect(h.runChat).toHaveBeenCalledWith(
       expect.objectContaining({ orgId: "org-known", userId: "user-known" })
     );
-    expect(h.sendWhatsApp).toHaveBeenCalled();
-    expect(h.updateRun).toHaveBeenCalledWith("run-1", "completed");
+    // No "To" on this payload → reply falls back to the code-owned sender.
+    expect(h.sendWhatsApp).toHaveBeenCalledWith(
+      expect.objectContaining({ from: "+17372324091", to: "+14155551234" })
+    );
+    expect(h.updateRun).toHaveBeenCalledWith("run-1", "completed", {
+      orgId: "org-known",
+      userId: "user-known",
+    });
   });
 
   it("marks the run failed and rethrows when the agent errors", async () => {
@@ -186,6 +202,7 @@ describe("handleInboundWhatsApp", () => {
     expect(h.updateRun).toHaveBeenCalledWith(
       "run-err",
       "failed",
+      { orgId: "org-x", userId: "user-x" },
       expect.any(String)
     );
   });
@@ -270,11 +287,17 @@ describe("POST /send/whatsapp", () => {
     expect(h.sendWhatsApp).toHaveBeenCalledWith(
       expect.objectContaining({ to: "+14155551234", body: "hello from service" })
     );
-    // Per-message fee declared under the code-owned, catalog-byte-equal name.
-    expect(h.addCosts).toHaveBeenCalledWith("run-send", [
-      { costName: "twilio-whatsapp-message", costSource: "platform", quantity: 1 },
-    ]);
-    expect(h.updateRun).toHaveBeenCalledWith("run-send", "completed");
+    // Per-message fee declared under the code-owned, catalog-byte-equal name,
+    // with the org/user identity headers runs-service requires.
+    expect(h.addCosts).toHaveBeenCalledWith(
+      "run-send",
+      [{ costName: "twilio-whatsapp-message", costSource: "platform", quantity: 1 }],
+      { orgId: "org-1", userId: "user-1" }
+    );
+    expect(h.updateRun).toHaveBeenCalledWith("run-send", "completed", {
+      orgId: "org-1",
+      userId: "user-1",
+    });
   });
 
   it("returns 400 on a missing recipient", async () => {
