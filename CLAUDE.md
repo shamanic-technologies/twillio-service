@@ -68,6 +68,12 @@ chat (the same AI brain the dashboard's "Edit with AI" uses, via api-service
 - Zod schemas are the single source of truth for validation + OpenAPI generation
 - Never edit openapi.json manually — it's auto-generated
 - Runs-service integration is BLOCKING: create run → send SMS → record → add costs → complete run
+- The DEPLOYED runs-service requires the `x-org-id` identity HEADER (+ optional
+  `x-user-id`) on EVERY run-scoped call — `POST /v1/runs`, `PATCH /v1/runs/:id`
+  (updateRun), AND `POST /v1/runs/:id/costs` (addCosts) — even though its OpenAPI
+  doc omits the header on update/costs. `src/lib/runs-client.ts` sends them via
+  the `RunIdentity` param on all three; thread orgId/userId through any new
+  caller or runs-service 400s "x-org-id header is required and must be a valid UUID".
 - Webhook handler uses Twilio request validation for security
 - All tables linked by messageSid (Twilio's message ID)
 - Port 3011
