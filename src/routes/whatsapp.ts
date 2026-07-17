@@ -39,6 +39,17 @@ function buildWebhookUrl(path: string): string {
 // Twilio delivers WhatsApp webhooks as URL-encoded form data.
 router.use(WHATSAPP_WEBHOOK_PATH, express.urlencoded({ extended: false }));
 
+// WhatsApp uses its own lightweight markup (single *bold*, _italic_, ~strike~),
+// NOT full markdown. The chat-service agent emits markdown (**bold**, headings,
+// [text](url)); convert to WhatsApp markup so users don't see stray ** and #.
+function toWhatsAppText(md: string): string {
+  return md
+    .replace(/\*\*(.+?)\*\*/g, "*$1*") // **bold** / -> *bold*
+    .replace(/__(.+?)__/g, "*$1*") // __bold__ -> *bold*
+    .replace(/^#{1,6}\s+(.*)$/gm, "*$1*") // # Heading -> *Heading*
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)"); // [text](url) -> text (url)
+}
+
 export interface InboundWhatsAppPayload {
   from: string; // Twilio "From", e.g. "whatsapp:+14155551234"
   to?: string; // Twilio "To" — the exact channel address Twilio delivered to,
@@ -163,10 +174,11 @@ export async function handleInboundWhatsApp(
       : getWhatsAppFromNumber();
 
     if (agentResult.reply) {
+      const replyText = toWhatsAppText(agentResult.reply);
       const sendResult = await sendWhatsApp({
         from: replyFrom,
         to: phone,
-        body: agentResult.reply,
+        body: replyText,
       });
 
       if (sendResult.success && sendResult.messageSid) {
@@ -178,7 +190,7 @@ export async function handleInboundWhatsApp(
           runId: run.id,
           from: replyFrom,
           to: phone,
-          body: agentResult.reply,
+          body: replyText,
           status: sendResult.status || "queued",
           numSegments: sendResult.numSegments
             ? parseInt(sendResult.numSegments, 10)
