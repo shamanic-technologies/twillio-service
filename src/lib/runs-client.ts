@@ -56,13 +56,14 @@ export interface CostItem {
 
 async function runsRequest<T>(
   path: string,
-  options: { method?: string; body?: unknown } = {}
+  options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}
 ): Promise<T> {
   const { method = "GET", body } = options;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "X-API-Key": RUNS_SERVICE_API_KEY,
+    ...(options.headers ?? {}),
   };
 
   const response = await fetch(`${RUNS_SERVICE_URL}${path}`, {
@@ -84,11 +85,19 @@ async function runsRequest<T>(
 // --- Public API ---
 
 export async function createRun(params: CreateRunParams): Promise<Run> {
+  // runs-service resolves identity from HEADERS (x-org-id required, x-user-id
+  // optional); body org/user is deprecated. serviceName/taskName stay in body.
+  const headers: Record<string, string> = { "x-org-id": params.orgId };
+  if (params.userId) headers["x-user-id"] = params.userId;
+  if (params.parentRunId) headers["x-run-id"] = params.parentRunId;
   return runsRequest<Run>("/v1/runs", {
     method: "POST",
+    headers,
     body: {
-      ...params,
-      appId: "twilio-service",
+      serviceName: params.serviceName,
+      taskName: params.taskName,
+      ...(params.brandId ? { brandIds: [params.brandId] } : {}),
+      ...(params.campaignId ? { campaignId: params.campaignId } : {}),
     },
   });
 }
