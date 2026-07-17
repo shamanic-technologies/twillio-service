@@ -15,6 +15,13 @@
       "when": 1771166400000,
       "tag": "0001_remove_appid_add_userid",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784259246338,
+      "tag": "0002_whatsapp_adapter",
+      "breakpoints": true
     }
   ]
 }

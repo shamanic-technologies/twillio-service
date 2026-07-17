@@ -13,6 +13,7 @@ import healthRoutes from "./routes/health";
 import sendRoutes from "./routes/send";
 import statusRoutes from "./routes/status";
 import webhooksRoutes from "./routes/webhooks";
+import whatsappRoutes from "./routes/whatsapp";
 
 const app = express();
 const PORT = process.env.PORT || 3011;
@@ -72,6 +73,7 @@ app.use("/", healthRoutes);
 app.use("/", sendRoutes);
 app.use("/", statusRoutes);
 app.use("/", webhooksRoutes);
+app.use("/", whatsappRoutes);
 
 // Only start server if not in test environment
 if (process.env.NODE_ENV !== "test") {
