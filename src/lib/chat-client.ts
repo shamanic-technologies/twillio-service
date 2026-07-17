@@ -9,7 +9,7 @@
  *
  * This service contains NO agent logic. The WhatsApp agent identity (system
  * prompt + tool list) lives entirely in chat-service as a CONFIG, selected here
- * by `configKey` (CHAT_WHATSAPP_CONFIG_KEY). chat-service owns model resolution,
+ * by the code-owned `configKey` "whatsapp". chat-service owns model resolution,
  * the provider key, and the LLM cost declaration — we just pass the message +
  * identity headers + run id so the spend is metered against the sender's org.
  *
@@ -27,10 +27,10 @@
 
 const CHAT_SERVICE_URL = process.env.CHAT_SERVICE_URL;
 const CHAT_SERVICE_API_KEY = process.env.CHAT_SERVICE_API_KEY;
-// Which chat-service config (system prompt + allowed tools) backs the WhatsApp
-// agent. chat-service owns the config; we only reference it by key. Must match a
-// key registered on chat-service via PUT /config (per-org) or PUT /platform-config.
-const CHAT_WHATSAPP_CONFIG_KEY = process.env.CHAT_WHATSAPP_CONFIG_KEY;
+// Code-owned: the chat-service config (system prompt + allowed tools) backing
+// the WhatsApp agent. chat-service owns the config; we only reference it by key.
+// Registered on chat-service via PUT /config (per-org) or PUT /platform-config.
+const WHATSAPP_CHAT_CONFIG_KEY = "whatsapp";
 
 export interface RunChatParams {
   message: string;
@@ -104,9 +104,6 @@ export async function runChat(params: RunChatParams): Promise<RunChatResult> {
   if (!CHAT_SERVICE_URL || !CHAT_SERVICE_API_KEY) {
     throw new Error("CHAT_SERVICE_URL or CHAT_SERVICE_API_KEY not configured");
   }
-  if (!CHAT_WHATSAPP_CONFIG_KEY) {
-    throw new Error("CHAT_WHATSAPP_CONFIG_KEY not configured");
-  }
 
   const res = await fetch(`${CHAT_SERVICE_URL}/chat`, {
     method: "POST",
@@ -119,7 +116,7 @@ export async function runChat(params: RunChatParams): Promise<RunChatResult> {
       "x-run-id": params.runId,
     },
     body: JSON.stringify({
-      configKey: CHAT_WHATSAPP_CONFIG_KEY,
+      configKey: WHATSAPP_CHAT_CONFIG_KEY,
       message: params.message,
       // Omit (rather than send null) when there is no session to resume.
       ...(params.sessionId ? { sessionId: params.sessionId } : {}),

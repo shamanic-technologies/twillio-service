@@ -16,8 +16,28 @@ import { SendWhatsAppRequestSchema } from "../schemas";
 
 const router = Router();
 
+// ─── Code-owned WhatsApp channel config (not Railway env) ───────────────────
+// The inbound webhook route path. The exact URL Twilio signs its webhook (and
+// status-callback) requests with is this path joined onto the service public URL.
+const WHATSAPP_WEBHOOK_PATH = "/webhooks/twilio/whatsapp";
+// Validate Twilio webhook signatures by default.
+const VALIDATE_WHATSAPP_WEBHOOK = true;
+// Per-message Twilio WhatsApp fee — byte-equal to the costs-service catalog row.
+const WHATSAPP_COST_NAME = "twilio-whatsapp-message";
+
+/**
+ * Build the exact public URL Twilio signs a request to `path` with, by joining
+ * the service public URL (Railway) with the route path. Fails loud if the public
+ * URL is not configured — signature validation cannot be trusted without it.
+ */
+function buildWebhookUrl(path: string): string {
+  const base = process.env.TWILIO_SERVICE_PUBLIC_URL;
+  if (!base) throw new Error("TWILIO_SERVICE_PUBLIC_URL not configured");
+  return `${base.replace(/\/+$/, "")}${path}`;
+}
+
 // Twilio delivers WhatsApp webhooks as URL-encoded form data.
-router.use("/webhooks/twilio/whatsapp", express.urlencoded({ extended: false }));
+router.use(WHATSAPP_WEBHOOK_PATH, express.urlencoded({ extended: false }));
 
 export interface InboundWhatsAppPayload {
   from: string; // Twilio "From", e.g. "whatsapp:+14155551234"
@@ -173,14 +193,17 @@ export async function handleInboundWhatsApp(
 
 router.post("/webhooks/twilio/whatsapp", async (req: Request, res: Response) => {
   try {
-    // Optional Twilio signature validation (opt-in — needs the live public URL).
-    if (process.env.TWILIO_VALIDATE_WHATSAPP_WEBHOOK === "true") {
+    // Twilio signature validation (on by default). Twilio signs the request
+    // using the exact public URL it called — derive it from the service public
+    // URL + route path, not the inbound Host header.
+    if (VALIDATE_WHATSAPP_WEBHOOK) {
       const signature = req.header("X-Twilio-Signature") || "";
-      const base =
-        process.env.TWILIO_WEBHOOK_BASE_URL ||
-        `${req.protocol}://${req.get("host")}`;
-      const url = `${base}${req.originalUrl}`;
-      const valid = validateWebhookSignature(signature, url, req.body || {});
+      const url = buildWebhookUrl(WHATSAPP_WEBHOOK_PATH);
+      const valid = await validateWebhookSignature(
+        signature,
+        url,
+        req.body || {}
+      );
       if (!valid) {
         return res.status(403).type("text/xml").send("<Response></Response>");
       }
@@ -298,15 +321,12 @@ router.post("/send/whatsapp", async (req: Request, res: Response) => {
 
     if (runId) {
       try {
-        // The Twilio WhatsApp per-message fee is declared only when its
-        // costs-service catalog row exists (name provided via env). Until then
-        // the run is still tracked; the LLM spend is declared by chat-service.
-        const costName = process.env.TWILIO_WHATSAPP_COST_NAME;
-        if (costName) {
-          await addCosts(runId, [
-            { costName, costSource: "platform", quantity: 1 },
-          ]);
-        }
+        // The Twilio WhatsApp per-message fee (platform-billed). The cost name
+        // is code-owned and byte-equal to the costs-service catalog row; the LLM
+        // spend is declared separately by chat-service.
+        await addCosts(runId, [
+          { costName: WHATSAPP_COST_NAME, costSource: "platform", quantity: 1 },
+        ]);
         await updateRun(runId, "completed");
       } catch (err) {
         console.error("Failed to add costs/complete run:", err);
