@@ -84,6 +84,73 @@ export async function sendSms(
   }
 }
 
+// ─── WhatsApp ────────────────────────────────────────────────────────────────
+
+/**
+ * Normalize a Twilio WhatsApp address to a bare E.164 phone number.
+ * Twilio sends WhatsApp participants as "whatsapp:+14155551234"; strip the
+ * channel prefix and surrounding whitespace so it can be used as a stable key.
+ */
+export function normalizeWhatsAppPhone(address: string): string {
+  return address.trim().replace(/^whatsapp:/i, "").trim();
+}
+
+/**
+ * Get the platform WhatsApp sender number (E.164) for outbound replies, without
+ * the "whatsapp:" prefix. Set via TWILIO_WHATSAPP_NUMBER once the Twilio
+ * WhatsApp Sender is registered.
+ */
+export function getWhatsAppFromNumber(): string {
+  const num = process.env.TWILIO_WHATSAPP_NUMBER;
+  if (!num) throw new Error("TWILIO_WHATSAPP_NUMBER not configured");
+  return normalizeWhatsAppPhone(num);
+}
+
+export interface SendWhatsAppParams {
+  /** E.164 sender, with or without the "whatsapp:" prefix. */
+  from: string;
+  /** E.164 recipient, with or without the "whatsapp:" prefix. */
+  to: string;
+  body: string;
+  statusCallback?: string;
+}
+
+/**
+ * Send a WhatsApp message via Twilio. Uses the same Messages API as SMS with the
+ * WhatsApp channel — Twilio requires both addresses prefixed with "whatsapp:".
+ */
+export async function sendWhatsApp(
+  params: SendWhatsAppParams
+): Promise<SendSmsResult> {
+  const client = getClient();
+
+  const from = `whatsapp:${normalizeWhatsAppPhone(params.from)}`;
+  const to = `whatsapp:${normalizeWhatsAppPhone(params.to)}`;
+
+  try {
+    const message: MessageInstance = await client.messages.create({
+      from,
+      to,
+      body: params.body,
+      statusCallback: params.statusCallback,
+    });
+
+    return {
+      success: true,
+      messageSid: message.sid,
+      status: message.status,
+      numSegments: message.numSegments,
+    };
+  } catch (error: any) {
+    console.error("Twilio WhatsApp send error:", error);
+    return {
+      success: false,
+      errorCode: error.code || -1,
+      errorMessage: error.message || "Unknown error",
+    };
+  }
+}
+
 /**
  * Get message details from Twilio
  */

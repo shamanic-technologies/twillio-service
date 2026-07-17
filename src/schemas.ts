@@ -190,6 +190,59 @@ export const TwilioWebhookPayloadSchema = z
 
 export type TwilioWebhookPayload = z.infer<typeof TwilioWebhookPayloadSchema>;
 
+// ===== WhatsApp =====
+
+export const SendWhatsAppRequestSchema = z
+  .object({
+    to: z
+      .string()
+      .openapi({
+        description:
+          "Recipient phone number (E.164, with or without the 'whatsapp:' prefix)",
+      }),
+    body: z.string().openapi({ description: "WhatsApp message body" }),
+    parentRunId: z
+      .string()
+      .optional()
+      .openapi({ description: "Parent run ID for cost/run linkage" }),
+    brandId: z.string().optional().openapi({ description: "Brand ID" }),
+    campaignId: z.string().optional().openapi({ description: "Campaign ID" }),
+    statusCallback: z
+      .string()
+      .optional()
+      .openapi({ description: "URL for Twilio status callbacks" }),
+  })
+  .openapi("SendWhatsAppRequest");
+
+export type SendWhatsAppRequest = z.infer<typeof SendWhatsAppRequestSchema>;
+
+export const SendWhatsAppResponseSchema = z
+  .object({
+    success: z.boolean(),
+    messageSid: z.string().optional(),
+    status: z.string().optional(),
+    numSegments: z.string().optional(),
+    recordId: z.string().optional(),
+  })
+  .openapi("SendWhatsAppResponse");
+
+export type SendWhatsAppResponse = z.infer<typeof SendWhatsAppResponseSchema>;
+
+export const TwilioWhatsAppInboundSchema = z
+  .object({
+    From: z
+      .string()
+      .openapi({ description: "Sender WhatsApp address, e.g. whatsapp:+14155551234" }),
+    To: z.string().optional(),
+    Body: z.string().optional(),
+    MessageSid: z.string().optional(),
+    WaId: z.string().optional().openapi({ description: "Sender WhatsApp id (digits)" }),
+    ProfileName: z.string().optional(),
+  })
+  .openapi("TwilioWhatsAppInbound");
+
+export type TwilioWhatsAppInbound = z.infer<typeof TwilioWhatsAppInboundSchema>;
+
 // ================================================================
 // Register all API paths
 // ================================================================
@@ -383,6 +436,63 @@ registry.registerPath({
     200: {
       description: "Aggregated stats",
       content: { "application/json": { schema: StatsResponseSchema } },
+    },
+  },
+});
+
+// --- WhatsApp ---
+
+registry.registerPath({
+  method: "post",
+  path: "/send/whatsapp",
+  summary: "Send a WhatsApp message",
+  description:
+    "Send a WhatsApp message via Twilio and record it. Tracks a run. Used to push agent replies (or any message) to a WhatsApp user.",
+  tags: ["WhatsApp"],
+  security: [{ apiKey: [] }],
+  request: {
+    body: {
+      content: { "application/json": { schema: SendWhatsAppRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "WhatsApp message sent",
+      content: {
+        "application/json": { schema: SendWhatsAppResponseSchema },
+      },
+    },
+    400: {
+      description: "Invalid request",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/webhooks/twilio/whatsapp",
+  summary: "Inbound WhatsApp webhook",
+  description:
+    "Receives inbound WhatsApp messages from Twilio. Resolves the sender to a platform account (provisioning via client-service if unknown), forwards to the dashboard-chat agent, and replies over WhatsApp. Twilio-signed (no X-API-Key).",
+  tags: ["WhatsApp"],
+  request: {
+    body: {
+      content: {
+        "application/x-www-form-urlencoded": {
+          schema: TwilioWhatsAppInboundSchema,
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Acknowledged (empty TwiML)",
+      content: { "text/xml": { schema: z.string() } },
     },
   },
 });
