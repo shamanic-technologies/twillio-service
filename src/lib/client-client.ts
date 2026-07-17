@@ -4,37 +4,34 @@
  * client-service OWNS account/Clerk/billing provisioning. When an unknown phone
  * number messages the WhatsApp bot, this service does NOT create a Clerk org or
  * grant credit itself — it asks client-service to resolve-or-provision a full
- * signup-equivalent account (with the $5 welcome credit) for that phone, and
- * caches the returned mapping.
+ * signup-equivalent account (with the welcome credit) for that phone, and caches
+ * the returned mapping locally.
  *
- * NOTE ON THE CONTRACT: at time of writing, client-service does not yet deploy a
- * phone→account provisioning route (it exposes POST /internal/resolve, which
- * upserts an EXISTING Clerk external org/user id → internal UUIDs, and does not
- * create Clerk orgs or grant credit). This caller is therefore written
- * ADAPTABLY, not frozen to a guessed shape:
- *   - the endpoint path is env-overridable via CLIENT_PHONE_PROVISION_PATH, so
- *     conforming to whatever client-service ships is a config change, not a code
- *     change;
- *   - the response is read against client-service's existing {orgId, userId}
- *     internal-UUID convention (same as /internal/resolve).
- * A cross-repo request for this endpoint is tracked separately; until it deploys,
- * unknown-number provisioning fails loud (no silent fallback, no local Clerk /
- * credit work).
+ * Conforms to the deployed client-service contract (client-service PR #76 /
+ * issue #77, verified live via the api-registry):
+ *
+ *   POST /internal/phone-accounts   (requireApiKey, service-to-service)
+ *     request:  { phone }            — E.164, ^\+[1-9]\d{6,14}$
+ *     response: { orgId, userId, phone, clerkOrgId, clerkUserId, created }
+ *     Idempotent per phone: a repeat call returns the existing identity with
+ *     created=false and no side effects. Fails loud (502) on Clerk/billing error.
+ *
+ * The path stays env-overridable (CLIENT_PHONE_PROVISION_PATH) so a future
+ * rename conforms without a code change. Fails loud on any error — no silent
+ * fallback, no local Clerk/credit work.
  */
 
 const CLIENT_SERVICE_URL = process.env.CLIENT_SERVICE_URL;
 const CLIENT_SERVICE_API_KEY = process.env.CLIENT_SERVICE_API_KEY || "";
-// Overridable so we conform to the deployed client-service route name without a
-// code change once it ships.
 const CLIENT_PHONE_PROVISION_PATH =
-  process.env.CLIENT_PHONE_PROVISION_PATH || "/internal/resolve-phone";
+  process.env.CLIENT_PHONE_PROVISION_PATH || "/internal/phone-accounts";
 
 export interface ResolveOrProvisionByPhoneParams {
   /** Sender phone in E.164, e.g. "+14155551234". */
   phone: string;
-  /** WhatsApp profile display name, when known — used for the account name. */
+  /** WhatsApp profile display name, when known (currently informational only). */
   profileName?: string;
-  /** Which surface the signup originated from (for client-service attribution). */
+  /** Origin surface (currently informational only). */
   source?: string;
 }
 
@@ -49,7 +46,7 @@ export interface ResolvedAccount {
 
 /**
  * Resolve a phone number to a platform account, provisioning a new one (full
- * signup-equivalent, $5 welcome credit) via client-service if none exists.
+ * signup-equivalent, welcome credit) via client-service if none exists.
  * Idempotent on the phone number. Fails loud on any error.
  */
 export async function resolveOrProvisionAccountByPhone(
@@ -65,11 +62,8 @@ export async function resolveOrProvisionAccountByPhone(
       "Content-Type": "application/json",
       "x-api-key": CLIENT_SERVICE_API_KEY,
     },
-    body: JSON.stringify({
-      phone: params.phone,
-      profileName: params.profileName,
-      source: params.source || "whatsapp",
-    }),
+    // Contract accepts only { phone }.
+    body: JSON.stringify({ phone: params.phone }),
   });
 
   if (!res.ok) {
@@ -83,21 +77,15 @@ export async function resolveOrProvisionAccountByPhone(
     orgId?: string;
     userId?: string;
     created?: boolean;
-    orgCreated?: boolean;
-    userCreated?: boolean;
   };
 
   if (!data.orgId || !data.userId) {
-    throw new Error(
-      "client-service phone provision returned no orgId/userId"
-    );
+    throw new Error("client-service phone provision returned no orgId/userId");
   }
 
   return {
     orgId: data.orgId,
     userId: data.userId,
-    // Accept either an explicit `created` flag or client-service's existing
-    // orgCreated/userCreated convention.
-    created: Boolean(data.created ?? data.orgCreated ?? data.userCreated),
+    created: Boolean(data.created),
   };
 }
