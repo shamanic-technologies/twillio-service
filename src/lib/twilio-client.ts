@@ -142,7 +142,7 @@ export function normalizeWhatsAppPhone(address: string): string {
 // Code-owned WhatsApp sender address. The Twilio sandbox number for now; swap to
 // the production WhatsApp sender number here once the Twilio WhatsApp Sender is
 // registered and live.
-const WHATSAPP_FROM_NUMBER = "whatsapp:+14155238886";
+const WHATSAPP_FROM_NUMBER = "whatsapp:+17372324091";
 
 /**
  * Get the platform WhatsApp sender number (E.164) for outbound replies, without

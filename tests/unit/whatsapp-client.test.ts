@@ -25,7 +25,7 @@ describe("normalizeWhatsAppPhone", () => {
 
 describe("getWhatsAppFromNumber", () => {
   it("returns the code-owned sandbox number without the whatsapp: prefix", () => {
-    expect(getWhatsAppFromNumber()).toBe("+14155238886");
+    expect(getWhatsAppFromNumber()).toBe("+17372324091");
   });
 });
 

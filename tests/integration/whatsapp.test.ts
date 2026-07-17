@@ -60,7 +60,7 @@ vi.mock("../../src/lib/twilio-client", async (importOriginal) => {
   return {
     ...actual,
     sendWhatsApp: h.sendWhatsApp,
-    getWhatsAppFromNumber: () => "+14155238886",
+    getWhatsAppFromNumber: () => "+17372324091",
     // Signature validation is on by default; stub it true (real impl resolves
     // the Twilio auth token from key-service, unreachable in tests).
     validateWebhookSignature: async () => true,
@@ -211,7 +211,7 @@ describe("POST /webhooks/twilio/whatsapp", () => {
       .type("form")
       .send({
         From: "whatsapp:+14155551234",
-        To: "whatsapp:+14155238886",
+        To: "whatsapp:+17372324091",
         Body: "hi",
         MessageSid: "SM100",
         WaId: "14155551234",
