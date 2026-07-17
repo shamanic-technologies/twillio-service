@@ -61,6 +61,9 @@ vi.mock("../../src/lib/twilio-client", async (importOriginal) => {
     ...actual,
     sendWhatsApp: h.sendWhatsApp,
     getWhatsAppFromNumber: () => "+14155238886",
+    // Signature validation is on by default; stub it true (real impl resolves
+    // the Twilio auth token from key-service, unreachable in tests).
+    validateWebhookSignature: async () => true,
   };
 });
 
@@ -239,6 +242,7 @@ describe("POST /send/whatsapp", () => {
       messageSid: "WA-OUT",
       status: "queued",
     });
+    h.addCosts.mockResolvedValue({});
     h.updateRun.mockResolvedValue({});
   });
 
@@ -266,6 +270,10 @@ describe("POST /send/whatsapp", () => {
     expect(h.sendWhatsApp).toHaveBeenCalledWith(
       expect.objectContaining({ to: "+14155551234", body: "hello from service" })
     );
+    // Per-message fee declared under the code-owned, catalog-byte-equal name.
+    expect(h.addCosts).toHaveBeenCalledWith("run-send", [
+      { costName: "twilio-whatsapp-message", costSource: "platform", quantity: 1 },
+    ]);
     expect(h.updateRun).toHaveBeenCalledWith("run-send", "completed");
   });
 

@@ -15,10 +15,13 @@ process.env.TWILIO_SERVICE_DATABASE_URL =
   "postgresql://test:test@localhost:5432/twilio_test?sslmode=disable";
 process.env.TWILIO_SERVICE_API_KEY =
   process.env.TWILIO_SERVICE_API_KEY || "test-secret-key";
-process.env.TWILIO_ACCOUNT_SID =
-  process.env.TWILIO_ACCOUNT_SID || "ACtest1234567890";
-process.env.TWILIO_AUTH_TOKEN =
-  process.env.TWILIO_AUTH_TOKEN || "test-auth-token";
+// The platform Twilio credential is resolved from key-service (no env creds).
+process.env.KEY_SERVICE_URL =
+  process.env.KEY_SERVICE_URL || "http://localhost:3005";
+process.env.KEY_SERVICE_API_KEY =
+  process.env.KEY_SERVICE_API_KEY || "test-key-service-key";
+process.env.TWILIO_SERVICE_PUBLIC_URL =
+  process.env.TWILIO_SERVICE_PUBLIC_URL || "https://twilio.test";
 process.env.TWILIO_MCPFACTORY_PHONE_NUMBER =
   process.env.TWILIO_MCPFACTORY_PHONE_NUMBER || "+15551234567";
 

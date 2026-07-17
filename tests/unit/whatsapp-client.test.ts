@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   normalizeWhatsAppPhone,
   getWhatsAppFromNumber,
@@ -24,22 +24,8 @@ describe("normalizeWhatsAppPhone", () => {
 });
 
 describe("getWhatsAppFromNumber", () => {
-  const prev = process.env.TWILIO_WHATSAPP_NUMBER;
-  afterEach(() => {
-    if (prev === undefined) delete process.env.TWILIO_WHATSAPP_NUMBER;
-    else process.env.TWILIO_WHATSAPP_NUMBER = prev;
-  });
-
-  it("returns the configured number without the whatsapp: prefix", () => {
-    process.env.TWILIO_WHATSAPP_NUMBER = "whatsapp:+14155238886";
+  it("returns the code-owned sandbox number without the whatsapp: prefix", () => {
     expect(getWhatsAppFromNumber()).toBe("+14155238886");
-  });
-
-  it("throws when not configured", () => {
-    delete process.env.TWILIO_WHATSAPP_NUMBER;
-    expect(() => getWhatsAppFromNumber()).toThrow(
-      /TWILIO_WHATSAPP_NUMBER not configured/
-    );
   });
 });
 

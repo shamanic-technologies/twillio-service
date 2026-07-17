@@ -45,14 +45,24 @@ chat (the same AI brain the dashboard's "Edit with AI" uses, via api-service
 - **chat-service `POST /chat` is SSE-streaming**: consume the stream, accumulate
   `{type:"token",content}` frames into the reply, capture the first `{sessionId}`
   frame, stop at `"[DONE]"`. Body: `{configKey, message, sessionId?, context}`.
-  `configKey` = `CHAT_WHATSAPP_CONFIG_KEY` (chat-service owns the config: system
+  `configKey` = code constant `"whatsapp"` (chat-service owns the config: system
   prompt + allowed tools). Identity headers `x-org-id/x-user-id/x-run-id` scope
   the session + let chat-service meter LLM cost against the sender's org.
 - WhatsApp outbound reuses `twilio_sendings` with `channel:"whatsapp"`.
-- Env: `CHAT_SERVICE_URL/_API_KEY`, `CHAT_WHATSAPP_CONFIG_KEY`,
-  `CLIENT_SERVICE_URL/_API_KEY`, `TWILIO_WHATSAPP_NUMBER`. Optional:
-  `CLIENT_PHONE_PROVISION_PATH`, `TWILIO_WHATSAPP_COST_NAME`,
-  `TWILIO_VALIDATE_WHATSAPP_WEBHOOK`.
+- **Code-owned channel config (NOT env):** the WhatsApp sender number
+  (`whatsapp:+14155238886` sandbox, swap to prod sender in code once live), the
+  chat config key (`"whatsapp"`), the webhook-validation flag (on by default),
+  and the WhatsApp cost name (`twilio-whatsapp-message`, byte-equal to the
+  costs-service catalog row) are all constants in `src/lib` / `src/routes`.
+- **Twilio account creds via key-service** (NOT env): the platform Twilio
+  account SID + auth token are resolved from key-service, provider `"twilio"`,
+  platform-decrypt `GET /keys/platform/twilio/decrypt` → decrypted value is JSON
+  `{accountSid, authToken}`. Fails loud if the provider/key is absent — no env
+  fallback. Covers BOTH the SMS and WhatsApp Twilio client.
+- Env: `CHAT_SERVICE_URL/_API_KEY`, `CLIENT_SERVICE_URL/_API_KEY`,
+  `KEY_SERVICE_URL/_API_KEY`, `TWILIO_SERVICE_PUBLIC_URL` (service public URL —
+  the Twilio webhook/status-callback URL is this base + route path). Optional:
+  `CLIENT_PHONE_PROVISION_PATH`.
 
 ## Key Patterns
 - Zod schemas are the single source of truth for validation + OpenAPI generation
