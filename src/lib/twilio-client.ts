@@ -222,3 +222,66 @@ export async function validateWebhookSignature(
   const { authToken } = await resolveTwilioCredentials();
   return twilio.validateRequest(authToken, signature, url, params);
 }
+
+// ─── Voice ───────────────────────────────────────────────────────────────────
+
+// Code-owned voice caller id. The only voice-enabled number this Twilio account
+// owns (PNa0414e7181d1da337cc1c684248ca660); swap it here if the account's
+// number changes.
+const VOICE_FROM_NUMBER = "+13159291895";
+
+/** The platform caller id (E.164) used for outbound calls. */
+export function getVoiceFromNumber(): string {
+  return VOICE_FROM_NUMBER;
+}
+
+export interface PlaceCallParams {
+  from: string;
+  to: string;
+  /** TwiML webhook Twilio fetches once the call is answered. */
+  url: string;
+  /** Callback Twilio posts the terminal call status (and duration) to. */
+  statusCallback: string;
+  /** Seconds Twilio rings before giving up. */
+  timeout?: number;
+}
+
+export interface PlaceCallResult {
+  success: boolean;
+  callSid?: string;
+  status?: string;
+  errorCode?: number;
+  errorMessage?: string;
+}
+
+/**
+ * Place an outbound call via Twilio. A Twilio rejection is returned as a
+ * failure with its code and message — it is never reported as a placed call.
+ */
+export async function placeCall(
+  params: PlaceCallParams
+): Promise<PlaceCallResult> {
+  const client = await getClient();
+
+  try {
+    const call = await client.calls.create({
+      from: params.from,
+      to: params.to,
+      url: params.url,
+      method: "POST",
+      statusCallback: params.statusCallback,
+      statusCallbackMethod: "POST",
+      statusCallbackEvent: ["completed"],
+      timeout: params.timeout ?? 30,
+    });
+
+    return { success: true, callSid: call.sid, status: call.status };
+  } catch (error: any) {
+    console.error("Twilio call error:", error);
+    return {
+      success: false,
+      errorCode: error.code || -1,
+      errorMessage: error.message || "Unknown error",
+    };
+  }
+}

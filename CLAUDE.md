@@ -18,7 +18,7 @@ chat (the same AI brain the dashboard's "Edit with AI" uses, via api-service
 
 ## Architecture
 - **src/schemas.ts** — Zod schemas + OpenAPI registry (single source of truth)
-- **src/routes/** — Express route handlers (health, send, status, webhooks, whatsapp)
+- **src/routes/** — Express route handlers (health, send, status, webhooks, whatsapp, calls)
 - **src/lib/twilio-client.ts** — Twilio SDK wrapper (SMS + WhatsApp channel)
 - **src/lib/runs-client.ts** — Vendored HTTP client for runs-service
 - **src/lib/chat-client.ts** — Consumes chat-service `POST /chat` agentic chat (SSE)
@@ -63,6 +63,42 @@ chat (the same AI brain the dashboard's "Edit with AI" uses, via api-service
   `KEY_SERVICE_URL/_API_KEY`, `TWILIO_SERVICE_PUBLIC_URL` (service public URL —
   the Twilio webhook/status-callback URL is this base + route path). Optional:
   `CLIENT_PHONE_PROVISION_PATH`.
+
+## Voice channel (outbound call, two keypresses)
+- **`POST /calls`** (service-authed, run-tracked): ring `to`, read a short spoken
+  summary of why, and require the person who picks up to **press 1 to take the
+  call**. Nothing but that opener plays before the keypress, so a voicemail hears
+  only the summary and the call is never recorded as taken. Once taken they hear
+  who replied, which company, and what they wrote.
+- **Second keypress bridges.** Only when `connectTo` was supplied is a second,
+  deliberate keypress offered; pressing 1 again `<Dial>`s that number. Without a
+  `connectTo` the call SAYS the option is unavailable rather than omitting it.
+  Never auto-bridge, and never place a call with no accept keypress.
+- **`GET /calls/:id`** (record id or Twilio call SID) is how a caller learns the
+  outcome: `accepted` false means nobody took it (no answer, no keypress, or a
+  machine), `connected` says whether the bridge happened.
+- **Flow legs** are Twilio-signed webhooks under `/webhooks/twilio/voice/*`
+  (`answer` → `accept` → `connect` → `dial-status`, plus `status`). Each carries
+  `?ref=<call record id>`; the row is inserted BEFORE the call is placed because
+  Twilio fetches `answer` as soon as it connects. Twilio signs the full URL
+  including that query string.
+- **Cost.** Twilio bills voice per minute at a rate set by the destination, so
+  costs-service publishes one catalogue name per band and the caller resolves it
+  from the number it dialled (`src/lib/voice-pricing.ts`):
+  `twilio-voice-outbound-minute-us`,
+  `twilio-voice-outbound-minute-fr-landline`,
+  `twilio-voice-outbound-minute-fr-mobile`. A destination with no published band
+  is REFUSED with a 400 before dialling, never billed under a neighbouring band;
+  the fix is a new costs-service row. Both legs are billed: the placed leg is
+  declared at the `status` callback, the bridged leg at `dial-status`, each under
+  its own destination's band, quantity = minutes (a started minute bills in full).
+  `cost_declared` / `connect_cost_declared` keep a retried callback from
+  declaring twice.
+- **Code-owned channel config (NOT env):** the caller id (`+13159291895`, the
+  only voice-enabled number on the account), the webhook paths, the
+  signature-validation flag, and the keypress timeouts are constants in
+  `src/lib/twilio-client.ts` / `src/routes/calls.ts`. Twilio creds come from
+  key-service, same as SMS and WhatsApp.
 
 ## Key Patterns
 - Zod schemas are the single source of truth for validation + OpenAPI generation
