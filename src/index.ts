@@ -14,6 +14,7 @@ import sendRoutes from "./routes/send";
 import statusRoutes from "./routes/status";
 import webhooksRoutes from "./routes/webhooks";
 import whatsappRoutes from "./routes/whatsapp";
+import callsRoutes from "./routes/calls";
 
 const app = express();
 const PORT = process.env.PORT || 3011;
@@ -74,6 +75,7 @@ app.use("/", sendRoutes);
 app.use("/", statusRoutes);
 app.use("/", webhooksRoutes);
 app.use("/", whatsappRoutes);
+app.use("/", callsRoutes);
 
 // Only start server if not in test environment
 if (process.env.NODE_ENV !== "test") {

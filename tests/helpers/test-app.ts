@@ -6,6 +6,7 @@ import sendRoutes from "../../src/routes/send";
 import statusRoutes from "../../src/routes/status";
 import webhooksRoutes from "../../src/routes/webhooks";
 import whatsappRoutes from "../../src/routes/whatsapp";
+import callsRoutes from "../../src/routes/calls";
 
 /**
  * Creates a test Express app without starting the server or running migrations.
@@ -21,6 +22,7 @@ export function createTestApp() {
   app.use("/", statusRoutes);
   app.use("/", webhooksRoutes);
   app.use("/", whatsappRoutes);
+  app.use("/", callsRoutes);
 
   return app;
 }
