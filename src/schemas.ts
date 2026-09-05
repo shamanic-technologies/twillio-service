@@ -243,6 +243,120 @@ export const TwilioWhatsAppInboundSchema = z
 
 export type TwilioWhatsAppInbound = z.infer<typeof TwilioWhatsAppInboundSchema>;
 
+// ===== Voice calls =====
+
+export const CallReplySchema = z
+  .object({
+    name: z
+      .string()
+      .min(1)
+      .openapi({ description: "Who replied to the campaign" }),
+    company: z
+      .string()
+      .optional()
+      .openapi({ description: "The replier's company, when known" }),
+    message: z
+      .string()
+      .min(1)
+      .openapi({ description: "What the replier actually wrote" }),
+  })
+  .openapi("CallReply");
+
+export const PlaceCallRequestSchema = z
+  .object({
+    to: z
+      .string()
+      .openapi({ description: "Number to ring (E.164), e.g. the sales rep" }),
+    reply: CallReplySchema.openapi({
+      description: "The reply the call is about; spoken after the accept keypress",
+    }),
+    brandName: z
+      .string()
+      .optional()
+      .openapi({ description: "Brand whose campaign was replied to, spoken in the opener" }),
+    connectTo: z
+      .string()
+      .optional()
+      .openapi({
+        description:
+          "Number to bridge to on a second keypress (E.164). Omit it and the call says the connect option is unavailable.",
+      }),
+    connectName: z
+      .string()
+      .optional()
+      .openapi({ description: "Who the connect keypress reaches, when not the replier" }),
+    parentRunId: z
+      .string()
+      .optional()
+      .openapi({ description: "Parent run ID for cost/run linkage" }),
+    brandId: z.string().optional().openapi({ description: "Brand ID" }),
+    campaignId: z.string().optional().openapi({ description: "Campaign ID" }),
+  })
+  .openapi("PlaceCallRequest");
+
+export type PlaceCallRequest = z.infer<typeof PlaceCallRequestSchema>;
+
+export const PlaceCallResponseSchema = z
+  .object({
+    success: z.boolean(),
+    callId: z.string().openapi({ description: "This service's call record id" }),
+    callSid: z.string().optional().openapi({ description: "Twilio call SID" }),
+    status: z.string().optional().openapi({ description: "Twilio call status" }),
+    costName: z
+      .string()
+      .openapi({ description: "Catalogue cost name the call's minutes are declared under" }),
+    connectOffered: z
+      .boolean()
+      .openapi({ description: "Whether a connect number was supplied" }),
+  })
+  .openapi("PlaceCallResponse");
+
+export type PlaceCallResponse = z.infer<typeof PlaceCallResponseSchema>;
+
+export const CallRecordSchema = z
+  .object({
+    id: z.string(),
+    callSid: z.string().nullable(),
+    to: z.string(),
+    from: z.string(),
+    connectTo: z.string().nullable(),
+    status: z.string().openapi({ description: "Twilio call status" }),
+    accepted: z
+      .boolean()
+      .openapi({
+        description:
+          "True only once the accept keypress arrived. False means nobody took the call: no answer, no keypress, or a machine picked up.",
+      }),
+    connected: z
+      .boolean()
+      .openapi({ description: "True once the second keypress bridged the two parties" }),
+    durationSeconds: z.number().nullable(),
+    billedMinutes: z.number().nullable(),
+    connectDurationSeconds: z.number().nullable(),
+    connectBilledMinutes: z.number().nullable(),
+    costName: z.string(),
+    connectCostName: z.string().nullable(),
+    errorCode: z.number().nullable(),
+    errorMessage: z.string().nullable(),
+  })
+  .openapi("CallRecord");
+
+export const GetCallResponseSchema = z
+  .object({ call: CallRecordSchema })
+  .openapi("GetCallResponse");
+
+export const TwilioVoiceWebhookSchema = z
+  .object({
+    CallSid: z.string().optional(),
+    CallStatus: z.string().optional(),
+    CallDuration: z.string().optional(),
+    DialCallStatus: z.string().optional(),
+    DialCallDuration: z.string().optional(),
+    Digits: z.string().optional().openapi({ description: "The key pressed" }),
+    AnsweredBy: z.string().optional(),
+  })
+  .openapi("TwilioVoiceWebhook");
+
 // ================================================================
 // Register all API paths
 // ================================================================
@@ -522,3 +636,89 @@ registry.registerPath({
     },
   },
 });
+
+// --- Voice calls ---
+
+registry.registerPath({
+  method: "post",
+  path: "/calls",
+  summary: "Place an outbound call",
+  description:
+    "Ring a number and read a short spoken summary of why. The person who picks up must press 1 to take the call before any detail is spoken, so a voicemail never counts as taken. Once taken they hear who replied, which company, and what they wrote, and — only when connectTo was supplied — are offered a second keypress that bridges them to that person. When connectTo is absent the call says so in words. Refuses a destination that has no published voice cost band.",
+  tags: ["Voice"],
+  security: [{ apiKey: [] }],
+  request: {
+    body: {
+      content: { "application/json": { schema: PlaceCallRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Call placed",
+      content: { "application/json": { schema: PlaceCallResponseSchema } },
+    },
+    400: {
+      description: "Invalid request, or a destination with no published cost band",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    502: {
+      description: "Twilio rejected the call",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+    500: {
+      description: "Server error",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/calls/{id}",
+  summary: "Read a call",
+  description:
+    "Read a call by record id or Twilio call SID. `accepted` distinguishes a call somebody took from one nobody answered, nobody accepted, or a machine picked up; `connected` says whether the bridge happened.",
+  tags: ["Voice"],
+  security: [{ apiKey: [] }],
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      description: "Call record",
+      content: { "application/json": { schema: GetCallResponseSchema } },
+    },
+    404: {
+      description: "Call not found",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+for (const [path, summary] of [
+  ["/webhooks/twilio/voice/answer", "Voice answer webhook (announces the call, asks for the accept keypress)"],
+  ["/webhooks/twilio/voice/accept", "Voice accept keypress webhook (plays the detail, offers the connect keypress)"],
+  ["/webhooks/twilio/voice/connect", "Voice connect keypress webhook (bridges to the supplied number)"],
+  ["/webhooks/twilio/voice/dial-status", "Bridged-leg status webhook (declares the bridged leg's minutes)"],
+  ["/webhooks/twilio/voice/status", "Voice call status webhook (records the outcome, declares the placed leg's minutes)"],
+] as const) {
+  registry.registerPath({
+    method: "post",
+    path,
+    summary,
+    description: "Twilio-signed (no X-API-Key). Returns TwiML.",
+    tags: ["Voice"],
+    request: {
+      query: z.object({ ref: z.string().openapi({ description: "Call record id" }) }),
+      body: {
+        content: {
+          "application/x-www-form-urlencoded": { schema: TwilioVoiceWebhookSchema },
+        },
+      },
+    },
+    responses: {
+      200: {
+        description: "TwiML response",
+        content: { "text/xml": { schema: z.string() } },
+      },
+    },
+  });
+}
