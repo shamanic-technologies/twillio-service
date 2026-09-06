@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import request from "supertest";
+import { eq, or } from "drizzle-orm";
+import { twilioCalls } from "../../src/db/schema";
 
 // ─── Hoisted mocks ───────────────────────────────────────────────────────────
 
@@ -63,8 +65,11 @@ const AUTH = {
   "x-user-id": "user-1",
 };
 
+// Webhook legs carry ?ref=<call record id>, and that id is a uuid column.
+const REF = "3f4a1c2e-0000-4000-8000-000000000abc";
+
 const CALL_ROW = {
-  id: "call-rec-1",
+  id: REF,
   callSid: "CA1",
   orgId: "org-1",
   userId: "user-1",
@@ -212,6 +217,21 @@ describe("GET /calls/:id", () => {
     expect(res.body.call.status).toBe("in-progress");
   });
 
+  it("looks a Twilio call SID up on the SID column only, never on the uuid id column", async () => {
+    // Comparing a SID against the uuid `id` column makes Postgres fail the cast
+    // and 500s the whole lookup.
+    const { callLookupWhere } = await import("../../src/routes/calls");
+    expect(callLookupWhere("CA1")).toEqual(eq(twilioCalls.callSid, "CA1"));
+  });
+
+  it("looks a record id up on both columns", async () => {
+    const { callLookupWhere } = await import("../../src/routes/calls");
+    const uuid = "3f4a1c2e-0000-4000-8000-0000000000ff";
+    expect(callLookupWhere(uuid)).toEqual(
+      or(eq(twilioCalls.callSid, uuid), eq(twilioCalls.id, uuid))
+    );
+  });
+
   it("404s an unknown call", async () => {
     h.findFirstCall.mockResolvedValue(undefined);
     const res = await request(app).get("/calls/CA-nope").set(AUTH);
@@ -222,14 +242,14 @@ describe("GET /calls/:id", () => {
 describe("the answer leg", () => {
   it("asks for the accept keypress and says nothing else", async () => {
     const res = await request(app)
-      .post("/webhooks/twilio/voice/answer?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/answer?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ CallSid: "CA1", CallStatus: "in-progress" });
 
     expect(res.status).toBe(200);
     expect(res.text).toContain("<Gather");
     expect(res.text).toContain("Press 1 to take this call");
-    expect(res.text).toContain("/webhooks/twilio/voice/accept?ref=call-rec-1");
+    expect(res.text).toContain("/webhooks/twilio/voice/accept?ref=3f4a1c2e-0000-4000-8000-000000000abc");
     // The detail is NOT spoken before the keypress, so a voicemail cannot hear it.
     expect(res.text).not.toContain("Northwind");
     // No keypress ends the call rather than continuing.
@@ -237,9 +257,19 @@ describe("the answer leg", () => {
     expect(res.text).toContain("<Hangup/>");
   });
 
+  it("does not query the uuid id column for a ref that cannot be a record id", async () => {
+    const res = await request(app)
+      .post("/webhooks/twilio/voice/answer?ref=not-a-uuid")
+      .type("form")
+      .send({});
+
+    expect(res.status).toBe(200);
+    expect(h.findFirstCall).not.toHaveBeenCalled();
+  });
+
   it("needs no X-API-Key (Twilio-signed)", async () => {
     const res = await request(app)
-      .post("/webhooks/twilio/voice/answer?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/answer?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({});
     expect(res.status).toBe(200);
@@ -249,7 +279,7 @@ describe("the answer leg", () => {
 describe("the accept leg", () => {
   it("plays the detail and offers the connect keypress on a 1", async () => {
     const res = await request(app)
-      .post("/webhooks/twilio/voice/accept?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/accept?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ Digits: "1" });
 
@@ -257,12 +287,12 @@ describe("the accept leg", () => {
     expect(res.text).toContain("Dana Reyes");
     expect(res.text).toContain("Northwind");
     expect(res.text).toContain("<Gather");
-    expect(res.text).toContain("/webhooks/twilio/voice/connect?ref=call-rec-1");
+    expect(res.text).toContain("/webhooks/twilio/voice/connect?ref=3f4a1c2e-0000-4000-8000-000000000abc");
   });
 
   it("leaves the call untaken and says nothing more on any other key", async () => {
     const res = await request(app)
-      .post("/webhooks/twilio/voice/accept?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/accept?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ Digits: "3" });
 
@@ -279,7 +309,7 @@ describe("the accept leg", () => {
     });
 
     const res = await request(app)
-      .post("/webhooks/twilio/voice/accept?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/accept?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ Digits: "1" });
 
@@ -292,7 +322,7 @@ describe("the accept leg", () => {
 describe("the connect leg", () => {
   it("bridges only on the second deliberate keypress", async () => {
     const res = await request(app)
-      .post("/webhooks/twilio/voice/connect?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/connect?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ Digits: "1" });
 
@@ -303,7 +333,7 @@ describe("the connect leg", () => {
 
   it("does not dial on any other key", async () => {
     const res = await request(app)
-      .post("/webhooks/twilio/voice/connect?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/connect?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ Digits: "9" });
 
@@ -314,7 +344,7 @@ describe("the connect leg", () => {
   it("does not dial when no connect number exists", async () => {
     h.findFirstCall.mockResolvedValue({ ...CALL_ROW, connectTo: null });
     const res = await request(app)
-      .post("/webhooks/twilio/voice/connect?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/connect?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ Digits: "1" });
     expect(res.text).not.toContain("<Dial");
@@ -324,7 +354,7 @@ describe("the connect leg", () => {
 describe("cost declaration", () => {
   it("declares the placed leg's minutes under the catalogue band and closes the run", async () => {
     const res = await request(app)
-      .post("/webhooks/twilio/voice/status?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/status?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ CallSid: "CA1", CallStatus: "completed", CallDuration: "95" });
 
@@ -350,7 +380,7 @@ describe("cost declaration", () => {
 
   it("declares the bridged leg under the band of the number bridged to", async () => {
     await request(app)
-      .post("/webhooks/twilio/voice/dial-status?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/dial-status?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ DialCallStatus: "completed", DialCallDuration: "30" });
 
@@ -371,7 +401,7 @@ describe("cost declaration", () => {
     h.findFirstCall.mockResolvedValue({ ...CALL_ROW, costDeclared: true });
 
     await request(app)
-      .post("/webhooks/twilio/voice/status?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/status?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ CallStatus: "completed", CallDuration: "95" });
 
@@ -380,7 +410,7 @@ describe("cost declaration", () => {
 
   it("declares nothing for a call nobody answered, and still records the outcome", async () => {
     await request(app)
-      .post("/webhooks/twilio/voice/status?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/status?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ CallStatus: "no-answer", CallDuration: "0" });
 
@@ -395,7 +425,7 @@ describe("cost declaration", () => {
 
   it("fails the run when Twilio reports the call as failed", async () => {
     await request(app)
-      .post("/webhooks/twilio/voice/status?ref=call-rec-1")
+      .post("/webhooks/twilio/voice/status?ref=3f4a1c2e-0000-4000-8000-000000000abc")
       .type("form")
       .send({ CallStatus: "failed", CallDuration: "0" });
 

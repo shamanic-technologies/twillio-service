@@ -95,9 +95,31 @@ function scriptInput(call: typeof twilioCalls.$inferSelect): CallScriptInput {
   };
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True when a path parameter can be one of our record ids (a uuid column). */
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value);
+}
+
+/**
+ * Where-clause for a call lookup by record id or Twilio call SID. `id` is a
+ * uuid column, so comparing a Twilio SID against it makes Postgres fail the
+ * cast and the whole lookup 500s — only ask about the record id when the
+ * parameter can actually be one.
+ */
+export function callLookupWhere(id: string) {
+  return isUuid(id)
+    ? or(eq(twilioCalls.callSid, id), eq(twilioCalls.id, id))
+    : eq(twilioCalls.callSid, id);
+}
+
 /** Load the call row a webhook leg refers to, or null. */
 async function loadCall(ref: string | undefined) {
-  if (!ref) return null;
+  // A ref that is not one of our record ids cannot match the uuid column, and
+  // asking Postgres to cast it fails the whole query.
+  if (!ref || !isUuid(ref)) return null;
   const call = await db.query.twilioCalls.findFirst({
     where: eq(twilioCalls.id, ref),
   });
@@ -273,7 +295,7 @@ router.get("/calls/:id", async (req: Request, res: Response) => {
     const { id } = req.params;
 
     const call = await db.query.twilioCalls.findFirst({
-      where: or(eq(twilioCalls.callSid, id), eq(twilioCalls.id, id)),
+      where: callLookupWhere(id),
     });
 
     if (!call) {
