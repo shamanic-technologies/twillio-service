@@ -21,7 +21,13 @@ import {
   buildDetail,
   buildConnectPrompt,
   buildNoConnectLine,
+  buildIdentityLine,
+  buildShortIdentityLine,
+  buildMenuPrompt,
+  buildPriorMessageLine,
+  buildHearOption,
   CallScriptInput,
+  PriorMessage,
 } from "../lib/voice-script";
 import { PlaceCallRequestSchema } from "../schemas";
 
@@ -33,6 +39,7 @@ const VOICE_WEBHOOK_PREFIX = "/webhooks/twilio/voice";
 const ANSWER_PATH = `${VOICE_WEBHOOK_PREFIX}/answer`;
 const ACCEPT_PATH = `${VOICE_WEBHOOK_PREFIX}/accept`;
 const CONNECT_PATH = `${VOICE_WEBHOOK_PREFIX}/connect`;
+const MENU_PATH = `${VOICE_WEBHOOK_PREFIX}/menu`;
 const DIAL_STATUS_PATH = `${VOICE_WEBHOOK_PREFIX}/dial-status`;
 const STATUS_PATH = `${VOICE_WEBHOOK_PREFIX}/status`;
 
@@ -59,6 +66,27 @@ function legUrl(path: string, ref: string): string {
   return buildWebhookUrl(`${path}?ref=${encodeURIComponent(ref)}`);
 }
 
+/**
+ * The menu leg's URL. The walk position through the thread rides this query
+ * string — there is no cursor column and no per-leg state anywhere else.
+ */
+function menuUrl(ref: string, index: number): string {
+  return buildWebhookUrl(
+    `${MENU_PATH}?ref=${encodeURIComponent(ref)}&i=${index}`
+  );
+}
+
+/**
+ * The walk position a menu leg was reached at. Anything out of range or
+ * malformed reads as "past the end of the thread", which lands on the
+ * connect-only menu rather than failing the leg.
+ */
+function menuIndex(raw: unknown): number {
+  const parsed = parseInt(String(raw ?? "0"), 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return Number.MAX_SAFE_INTEGER;
+  return parsed;
+}
+
 function emptyTwiml(res: Response, status = 200) {
   return res.status(status).type("text/xml").send("<Response></Response>");
 }
@@ -82,12 +110,38 @@ async function voiceSignatureValid(
   return validateWebhookSignature(signature, legUrl(path, ref), req.body || {});
 }
 
+/**
+ * The menu leg carries the walk position in its URL and Twilio signs the full
+ * URL, so its signature is checked against exactly the URL we handed over.
+ */
+async function menuSignatureValid(
+  req: Request,
+  ref: string,
+  index: number
+): Promise<boolean> {
+  if (!VALIDATE_VOICE_WEBHOOK) return true;
+  const signature = req.header("X-Twilio-Signature") || "";
+  return validateWebhookSignature(signature, menuUrl(ref, index), req.body || {});
+}
+
+function priorMessages(
+  call: typeof twilioCalls.$inferSelect
+): PriorMessage[] {
+  return Array.isArray(call.priorMessages) ? call.priorMessages : [];
+}
+
 function scriptInput(call: typeof twilioCalls.$inferSelect): CallScriptInput {
   return {
     reply: {
       name: call.replyName,
       company: call.replyCompany ?? undefined,
       message: call.replyMessage,
+      firstName: call.replyFirstName ?? undefined,
+      lastName: call.replyLastName ?? undefined,
+      title: call.replyTitle ?? undefined,
+      city: call.replyCity ?? undefined,
+      state: call.replyState ?? undefined,
+      country: call.replyCountry ?? undefined,
     },
     brandName: call.brandName ?? undefined,
     connectName: call.connectName ?? undefined,
@@ -221,6 +275,13 @@ router.post("/calls", async (req: Request, res: Response) => {
         replyName: data.reply.name,
         replyCompany: data.reply.company,
         replyMessage: data.reply.message,
+        replyFirstName: data.reply.firstName,
+        replyLastName: data.reply.lastName,
+        replyTitle: data.reply.title,
+        replyCity: data.reply.city,
+        replyState: data.reply.state,
+        replyCountry: data.reply.country,
+        priorMessages: data.priorMessages,
         summary,
         detail,
         costName,
@@ -386,30 +447,138 @@ router.post(ACCEPT_PATH, async (req: Request, res: Response) => {
       .set({ accepted: true, acceptedAt: new Date(), updatedAt: new Date() })
       .where(eq(twilioCalls.id, call.id));
 
-    vr.say(call.detail);
-
     const input = scriptInput(call);
+    const prior = priorMessages(call);
 
-    if (call.connectTo) {
-      const gather = vr.gather({
-        numDigits: 1,
-        timeout: KEYPRESS_TIMEOUT_SECONDS,
-        action: legUrl(CONNECT_PATH, call.id),
-        method: "POST",
-      });
-      gather.pause({ length: 1 });
-      gather.say(buildConnectPrompt(input));
-      vr.say("No key was pressed. Goodbye.");
-    } else {
-      // No number to connect to: say so rather than silently ending.
+    // The reply, then the identity in full, then the menu. The identity line is
+    // null when nothing arrived beyond the name and company the reply detail
+    // already spoke, so a call placed without those fields sounds as it always
+    // did.
+    const identity = buildIdentityLine(input);
+
+    if (!call.connectTo) {
+      // No number to connect to: say so rather than silently ending. The walk
+      // back through the thread is still offered — the context is worth having
+      // even when the bridge is not on the table.
+      vr.say(call.detail);
+      if (identity) vr.say(identity);
       vr.say(buildNoConnectLine(input));
-      vr.say("Goodbye.");
+      if (!buildHearOption(prior, 0)) {
+        vr.say("Goodbye.");
+        vr.hangup();
+        return sendTwiml(res, vr);
+      }
     }
+
+    // Everything spoken sits INSIDE the gather, so pressing a key mid-read acts
+    // on it immediately instead of making the listener sit through the rest.
+    const gather = vr.gather({
+      numDigits: 1,
+      timeout: KEYPRESS_TIMEOUT_SECONDS,
+      action: menuUrl(call.id, 0),
+      method: "POST",
+    });
+    if (call.connectTo) {
+      gather.say(call.detail);
+      if (identity) gather.say(identity);
+      gather.pause({ length: 1 });
+    }
+    gather.say(buildMenuPrompt(input, prior, 0));
+    vr.say("No key was pressed. Goodbye.");
 
     vr.hangup();
     return sendTwiml(res, vr);
   } catch (err) {
     console.error("POST voice/accept error:", err);
+    return emptyTwiml(res, 500);
+  }
+});
+
+/**
+ * Mark the call bridged and dial. Shared by the connect leg and the menu leg, so
+ * pressing 1 anywhere in the walk reaches exactly the same bridge.
+ */
+async function bridge(
+  call: typeof twilioCalls.$inferSelect,
+  vr: twilio.twiml.VoiceResponse
+): Promise<void> {
+  await db
+    .update(twilioCalls)
+    .set({ connected: true, connectedAt: new Date(), updatedAt: new Date() })
+    .where(eq(twilioCalls.id, call.id));
+
+  vr.say("Connecting you now.");
+  const dial = vr.dial({
+    callerId: call.from,
+    timeout: CONNECT_RING_TIMEOUT_SECONDS,
+    action: legUrl(DIAL_STATUS_PATH, call.id),
+    method: "POST",
+  });
+  dial.number(call.connectTo as string);
+}
+
+// ─── POST /webhooks/twilio/voice/menu ───────────────────────────────────────
+// The menu that walks backwards through the thread. `i` is the position in
+// `priorMessages` the menu was offering: 1 connects, 2 reads that message and
+// replays the menu one step further back. Nothing else acts, exactly as before.
+
+router.post(MENU_PATH, async (req: Request, res: Response) => {
+  try {
+    const ref = req.query.ref as string | undefined;
+    const index = menuIndex(req.query.i);
+    if (!(await menuSignatureValid(req, ref || "", index))) {
+      return emptyTwiml(res, 403);
+    }
+
+    const call = await loadCall(ref);
+    if (!call) return emptyTwiml(res);
+
+    const digits = (req.body?.Digits as string | undefined) || "";
+    const vr = new twilio.twiml.VoiceResponse();
+    const input = scriptInput(call);
+    const prior = priorMessages(call);
+
+    if (digits === "1" && call.connectTo) {
+      await bridge(call, vr);
+      return sendTwiml(res, vr);
+    }
+
+    const line = digits === "2" ? buildPriorMessageLine(prior, index) : null;
+    if (!line) {
+      // Either a key we do not act on, or nothing earlier left to read.
+      vr.say(digits === "2" ? "There is nothing earlier in this thread." : "Okay. Goodbye.");
+      vr.hangup();
+      return sendTwiml(res, vr);
+    }
+
+    const next = index + 1;
+    const hasMore = Boolean(buildHearOption(prior, next));
+    if (!call.connectTo && !hasMore) {
+      // Nothing left to offer: read the message out and end rather than open a
+      // gather no key can usefully answer.
+      vr.say(line);
+      vr.say("There is nothing earlier in this thread. Goodbye.");
+      vr.hangup();
+      return sendTwiml(res, vr);
+    }
+
+    const gather = vr.gather({
+      numDigits: 1,
+      timeout: KEYPRESS_TIMEOUT_SECONDS,
+      action: menuUrl(call.id, next),
+      method: "POST",
+    });
+    // The message sits inside the gather: pressing 1 mid-read connects at once.
+    gather.say(line);
+    gather.say(buildShortIdentityLine(input));
+    gather.pause({ length: 1 });
+    gather.say(buildMenuPrompt(input, prior, next));
+    vr.say("No key was pressed. Goodbye.");
+    vr.hangup();
+
+    return sendTwiml(res, vr);
+  } catch (err) {
+    console.error("POST voice/menu error:", err);
     return emptyTwiml(res, 500);
   }
 });
@@ -436,20 +605,7 @@ router.post(CONNECT_PATH, async (req: Request, res: Response) => {
       return sendTwiml(res, vr);
     }
 
-    await db
-      .update(twilioCalls)
-      .set({ connected: true, connectedAt: new Date(), updatedAt: new Date() })
-      .where(eq(twilioCalls.id, call.id));
-
-    vr.say("Connecting you now.");
-    const dial = vr.dial({
-      callerId: call.from,
-      timeout: CONNECT_RING_TIMEOUT_SECONDS,
-      action: legUrl(DIAL_STATUS_PATH, call.id),
-      method: "POST",
-    });
-    dial.number(call.connectTo);
-
+    await bridge(call, vr);
     return sendTwiml(res, vr);
   } catch (err) {
     console.error("POST voice/connect error:", err);

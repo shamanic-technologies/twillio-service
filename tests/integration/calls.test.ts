@@ -93,6 +93,11 @@ const CALL_ROW = {
   connectCostDeclared: false,
 };
 
+const PRIOR = [
+  { direction: "outbound" as const, text: "Hi Dana, we help teams ship faster. Worth a chat?" },
+  { direction: "outbound" as const, text: "Bumping this to the top of your inbox." },
+];
+
 const BODY = {
   to: "+13155550100",
   reply: { name: "Dana Reyes", company: "Northwind", message: "Sounds great" },
@@ -287,7 +292,38 @@ describe("the accept leg", () => {
     expect(res.text).toContain("Dana Reyes");
     expect(res.text).toContain("Northwind");
     expect(res.text).toContain("<Gather");
-    expect(res.text).toContain("/webhooks/twilio/voice/connect?ref=3f4a1c2e-0000-4000-8000-000000000abc");
+    expect(res.text).toContain(
+      "/webhooks/twilio/voice/menu?ref=3f4a1c2e-0000-4000-8000-000000000abc&amp;i=0"
+    );
+    // Nothing new was sent, so the script is the one it always was: the detail
+    // and the connect offer, with no identity line and no second option.
+    expect(res.text).toContain("Press 1 now to be connected to Dana Reyes.");
+    expect(res.text).not.toContain("Press 2");
+    expect(res.text).not.toContain("That is ");
+  });
+
+  it("states the identity in full before asking anything, when it was sent", async () => {
+    h.findFirstCall.mockResolvedValue({
+      ...CALL_ROW,
+      replyFirstName: "Dana",
+      replyLastName: "Reyes",
+      replyTitle: "Head of Sales",
+      replyCity: "Austin",
+      replyState: "Texas",
+      replyCountry: "United States",
+      priorMessages: PRIOR,
+    });
+
+    const res = await request(app)
+      .post("/webhooks/twilio/voice/accept?ref=3f4a1c2e-0000-4000-8000-000000000abc")
+      .type("form")
+      .send({ Digits: "1" });
+
+    expect(res.text).toContain(
+      "That is Dana Reyes, Head of Sales at Northwind, in Austin, Texas, United States."
+    );
+    expect(res.text).toContain("Press 2 to hear the email they replied to.");
+    expect(res.text).not.toContain("undefined");
   });
 
   it("leaves the call untaken and says nothing more on any other key", async () => {
@@ -316,6 +352,87 @@ describe("the accept leg", () => {
     expect(res.text).toContain("do not have a phone number");
     expect(res.text).not.toContain("<Gather");
     expect(res.text).not.toContain("/webhooks/twilio/voice/connect");
+  });
+
+  it("still offers the thread when there is no number to connect to", async () => {
+    h.findFirstCall.mockResolvedValue({
+      ...CALL_ROW,
+      connectTo: null,
+      connectCostName: null,
+      priorMessages: PRIOR,
+    });
+
+    const res = await request(app)
+      .post("/webhooks/twilio/voice/accept?ref=3f4a1c2e-0000-4000-8000-000000000abc")
+      .type("form")
+      .send({ Digits: "1" });
+
+    expect(res.text).toContain("do not have a phone number");
+    expect(res.text).toContain("Press 2 to hear the email they replied to.");
+    expect(res.text).not.toContain("Press 1 now to be connected");
+  });
+});
+
+describe("the menu leg", () => {
+  const MENU = "/webhooks/twilio/voice/menu?ref=3f4a1c2e-0000-4000-8000-000000000abc";
+
+  beforeEach(() => {
+    h.findFirstCall.mockResolvedValue({ ...CALL_ROW, priorMessages: PRIOR });
+  });
+
+  it("reads the email they replied to on a 2 and replays the menu one step back", async () => {
+    const res = await request(app).post(`${MENU}&i=0`).type("form").send({ Digits: "2" });
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("The email they replied to said: Hi Dana, we help teams");
+    expect(res.text).toContain("Still about Dana Reyes.");
+    expect(res.text).toContain("Press 2 to hear the message before that.");
+    expect(res.text).toContain(
+      "/webhooks/twilio/voice/menu?ref=3f4a1c2e-0000-4000-8000-000000000abc&amp;i=1"
+    );
+    // The identity is short from here on.
+    expect(res.text).not.toContain("Head of Sales");
+  });
+
+  it("reads the message inside the gather so a 1 mid-read connects at once", async () => {
+    const res = await request(app).post(`${MENU}&i=0`).type("form").send({ Digits: "2" });
+    const gatherAt = res.text.indexOf("<Gather");
+    expect(gatherAt).toBeGreaterThan(-1);
+    expect(res.text.indexOf("The email they replied to said")).toBeGreaterThan(gatherAt);
+  });
+
+  it("stops offering the 2 option at the end of the thread and says so", async () => {
+    const res = await request(app).post(`${MENU}&i=1`).type("form").send({ Digits: "2" });
+
+    expect(res.text).toContain("Before that, we wrote:");
+    expect(res.text).toContain("Press 1 now to be connected to Dana Reyes.");
+    expect(res.text).toContain("nothing earlier in this thread");
+    expect(res.text).not.toContain("Press 2");
+  });
+
+  it("bridges on a 1 anywhere in the walk", async () => {
+    const res = await request(app).post(`${MENU}&i=2`).type("form").send({ Digits: "1" });
+
+    expect(res.text).toContain("<Dial");
+    expect(res.text).toContain("+33612345678");
+    expect(res.text).toContain("/webhooks/twilio/voice/dial-status?ref=");
+  });
+
+  it("lands on the connect-only menu for an out-of-range or malformed index", async () => {
+    for (const i of ["99", "-3", "banana"]) {
+      const res = await request(app).post(`${MENU}&i=${i}`).type("form").send({ Digits: "2" });
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("nothing earlier in this thread");
+      expect(res.text).not.toContain("<Dial");
+    }
+  });
+
+  it("ends the call on any other key, exactly as it always did", async () => {
+    const res = await request(app).post(`${MENU}&i=0`).type("form").send({ Digits: "7" });
+
+    expect(res.text).toContain("<Hangup/>");
+    expect(res.text).not.toContain("<Dial");
+    expect(res.text).not.toContain("The email they replied to");
   });
 });
 

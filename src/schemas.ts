@@ -259,8 +259,32 @@ export const CallReplySchema = z
       .string()
       .min(1)
       .openapi({ description: "What the replier actually wrote" }),
+    firstName: z
+      .string()
+      .optional()
+      .openapi({ description: "The replier's first name, spoken in the identity line" }),
+    lastName: z
+      .string()
+      .optional()
+      .openapi({ description: "The replier's last name, spoken in the identity line" }),
+    title: z
+      .string()
+      .optional()
+      .openapi({ description: "The replier's job title" }),
+    city: z.string().optional().openapi({ description: "The replier's city" }),
+    state: z.string().optional().openapi({ description: "The replier's state or region" }),
+    country: z.string().optional().openapi({ description: "The replier's country" }),
   })
   .openapi("CallReply");
+
+export const PriorMessageSchema = z
+  .object({
+    direction: z
+      .enum(["outbound", "inbound"])
+      .openapi({ description: "Who sent it: outbound is us, inbound is the prospect" }),
+    text: z.string().openapi({ description: "The message body, already stripped by the caller" }),
+  })
+  .openapi("PriorMessage");
 
 export const PlaceCallRequestSchema = z
   .object({
@@ -280,6 +304,13 @@ export const PlaceCallRequestSchema = z
       .openapi({
         description:
           "Number to bridge to on a second keypress (E.164). Omit it and the call says the connect option is unavailable.",
+      }),
+    priorMessages: z
+      .array(PriorMessageSchema)
+      .optional()
+      .openapi({
+        description:
+          "The thread the reply belongs to, NEWEST-FIRST and excluding the reply itself: entry 0 is the email the reply answers. Offered one step at a time behind the second keypress.",
       }),
     connectName: z
       .string()
