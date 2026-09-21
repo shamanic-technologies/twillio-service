@@ -24,6 +24,7 @@ const h = vi.hoisted(() => {
     createRun: vi.fn(),
     updateRun: vi.fn(),
     addCosts: vi.fn(),
+    validateWebhookSignature: vi.fn(),
   };
 });
 
@@ -51,7 +52,7 @@ vi.mock("../../src/lib/twilio-client", async (importOriginal) => {
     getVoiceFromNumber: () => "+13159291895",
     // Real validation resolves the Twilio auth token from key-service, which is
     // unreachable in tests.
-    validateWebhookSignature: async () => true,
+    validateWebhookSignature: h.validateWebhookSignature,
   };
 });
 
@@ -111,6 +112,9 @@ beforeEach(() => {
   h.createRun.mockResolvedValue({ id: "run-1" });
   h.updateRun.mockResolvedValue({});
   h.addCosts.mockResolvedValue({ costs: [] });
+  // Real validation resolves the Twilio auth token from key-service, which is
+  // unreachable in tests.
+  h.validateWebhookSignature.mockResolvedValue(true);
   h.placeCall.mockResolvedValue({
     success: true,
     callSid: "CA1",
@@ -425,6 +429,18 @@ describe("the menu leg", () => {
       expect(res.text).toContain("nothing earlier in this thread");
       expect(res.text).not.toContain("<Dial");
     }
+  });
+
+  it("checks the signature against the URL as received, so a bad index cannot fail it", async () => {
+    // Rebuilding the URL from the PARSED index cannot reproduce a malformed one,
+    // and the leg would 403 instead of landing on the connect-only menu.
+    await request(app).post(`${MENU}&i=banana`).type("form").send({ Digits: "2" });
+
+    expect(h.validateWebhookSignature).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringContaining("i=banana"),
+      expect.anything()
+    );
   });
 
   it("ends the call on any other key, exactly as it always did", async () => {
