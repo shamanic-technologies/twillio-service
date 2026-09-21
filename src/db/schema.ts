@@ -6,6 +6,7 @@ import {
   integer,
   boolean,
   index,
+  jsonb,
 } from "drizzle-orm/pg-core";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -177,6 +178,19 @@ export const twilioCalls = pgTable(
     replyName: text("reply_name").notNull(),
     replyCompany: text("reply_company"),
     replyMessage: text("reply_message").notNull(),
+    // Spelled-out identity, all optional on the wire. A field nobody sent stays
+    // null and is simply not spoken.
+    replyFirstName: text("reply_first_name"),
+    replyLastName: text("reply_last_name"),
+    replyTitle: text("reply_title"),
+    replyCity: text("reply_city"),
+    replyState: text("reply_state"),
+    replyCountry: text("reply_country"),
+    // The thread the reply belongs to, NEWEST-FIRST, excluding the reply. The
+    // walk position is NOT stored: it rides the menu leg's action URL.
+    priorMessages: jsonb("prior_messages").$type<
+      { direction: "outbound" | "inbound"; text: string }[]
+    >(),
     // The assembled spoken script, frozen at request time so the webhook legs
     // read exactly what the caller asked for.
     summary: text("summary").notNull(),

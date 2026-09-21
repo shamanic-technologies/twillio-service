@@ -70,6 +70,20 @@ chat (the same AI brain the dashboard's "Edit with AI" uses, via api-service
   call**. Nothing but that opener plays before the keypress, so a voicemail hears
   only the summary and the call is never recorded as taken. Once taken they hear
   who replied, which company, and what they wrote.
+- **Then a MENU walks backwards through the thread.** The reply is read, the
+  identity is stated in full (first name, last name, title, company, city,
+  state, country, every one optional on the wire and simply not spoken when
+  absent), and the menu offers 1 = connect, 2 = hear the email they replied to.
+  Pressing 2 reads `priorMessages[i]` and replays the menu at `i+1` with the
+  identity in short form. The 2 option is absent, and not spoken, once nothing
+  earlier is left. `priorMessages` arrives NEWEST-FIRST and excludes the reply;
+  the caller has already stripped signatures and quoted history, so nothing here
+  re-strips it — only `MAX_SPOKEN_MESSAGE_CHARS` applies, same as the reply.
+- **The walk position rides the menu leg's action URL** (`?ref=<id>&i=<n>`), the
+  same way `ref` already does. No cursor column and no per-leg state: an
+  out-of-range or malformed `i` lands on the connect-only menu rather than
+  failing the leg. Every email is read INSIDE its `<Gather>`, so pressing 1
+  mid-read connects at once instead of forcing the listener to sit through it.
 - **Second keypress bridges.** Only when `connectTo` was supplied is a second,
   deliberate keypress offered; pressing 1 again `<Dial>`s that number. Without a
   `connectTo` the call SAYS the option is unavailable rather than omitting it.
