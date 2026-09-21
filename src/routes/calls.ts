@@ -111,17 +111,20 @@ async function voiceSignatureValid(
 }
 
 /**
- * The menu leg carries the walk position in its URL and Twilio signs the full
- * URL, so its signature is checked against exactly the URL we handed over.
+ * The menu leg carries the walk position in its URL, and Twilio signs the URL it
+ * actually called. Rebuilding that URL from the PARSED index cannot reproduce a
+ * malformed one, so the check is made against the query string AS RECEIVED —
+ * otherwise a bad `i` fails the signature instead of landing on the
+ * connect-only menu.
  */
-async function menuSignatureValid(
-  req: Request,
-  ref: string,
-  index: number
-): Promise<boolean> {
+async function menuSignatureValid(req: Request): Promise<boolean> {
   if (!VALIDATE_VOICE_WEBHOOK) return true;
   const signature = req.header("X-Twilio-Signature") || "";
-  return validateWebhookSignature(signature, menuUrl(ref, index), req.body || {});
+  return validateWebhookSignature(
+    signature,
+    buildWebhookUrl(req.originalUrl),
+    req.body || {}
+  );
 }
 
 function priorMessages(
@@ -526,7 +529,7 @@ router.post(MENU_PATH, async (req: Request, res: Response) => {
   try {
     const ref = req.query.ref as string | undefined;
     const index = menuIndex(req.query.i);
-    if (!(await menuSignatureValid(req, ref || "", index))) {
+    if (!(await menuSignatureValid(req))) {
       return emptyTwiml(res, 403);
     }
 
