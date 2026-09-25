@@ -101,7 +101,12 @@ chat (the same AI brain the dashboard's "Edit with AI" uses, via api-service
   from the number it dialled (`src/lib/voice-pricing.ts`):
   `twilio-voice-outbound-minute-us`,
   `twilio-voice-outbound-minute-fr-landline`,
-  `twilio-voice-outbound-minute-fr-mobile`. A destination with no published band
+  `twilio-voice-outbound-minute-fr-mobile`,
+  `twilio-voice-outbound-minute-lc-landline`,
+  `twilio-voice-outbound-minute-lc-mobile` (St Lucia, mobile by Twilio's own
+  prefix list). **+1 is NANP, not the US**: a +1 number is the US band only when
+  its area code is absent from `NANP_NON_US_AREA_CODES` (every area code Twilio
+  prices off its US & Canada row, incl. Alaska 907). A destination with no published band
   is REFUSED with a 400 before dialling, never billed under a neighbouring band;
   the fix is a new costs-service row. Both legs are billed: the placed leg is
   declared at the `status` callback, the bridged leg at `dial-status`, each under
