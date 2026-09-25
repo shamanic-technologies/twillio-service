@@ -173,6 +173,56 @@ describe("POST /calls", () => {
     expect(h.createRun).not.toHaveBeenCalled();
   });
 
+  it("prices a St Lucia mobile under its own band, against the caller's run", async () => {
+    const values = vi.fn(() => h.chain([CALL_ROW]));
+    h.insert.mockImplementation(() => ({ values }));
+
+    const res = await request(app)
+      .post("/calls")
+      .set(AUTH)
+      .send({ ...BODY, to: "+1 758 518 7473", parentRunId: "parent-run-1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.costName).toBe("twilio-voice-outbound-minute-lc-mobile");
+    expect(h.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-1", parentRunId: "parent-run-1" })
+    );
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "+17585187473",
+        costName: "twilio-voice-outbound-minute-lc-mobile",
+      })
+    );
+    expect(h.placeCall).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "+17585187473" })
+    );
+  });
+
+  it("refuses an unpriced +1 destination rather than billing it as the US", async () => {
+    const res = await request(app)
+      .post("/calls")
+      .set(AUTH)
+      .send({ ...BODY, to: "+19075550100" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Unsupported destination");
+    expect(res.body.message).toContain("United States - Alaska");
+    expect(h.placeCall).not.toHaveBeenCalled();
+    expect(h.createRun).not.toHaveBeenCalled();
+  });
+
+  it("refuses to bridge to an unpriced +1 destination", async () => {
+    const res = await request(app)
+      .post("/calls")
+      .set(AUTH)
+      .send({ ...BODY, connectTo: "+18765550100" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Unsupported connect destination");
+    expect(res.body.message).toContain("Jamaica");
+    expect(h.placeCall).not.toHaveBeenCalled();
+  });
+
   it("refuses a connect destination with no published cost band", async () => {
     const res = await request(app)
       .post("/calls")
@@ -524,6 +574,31 @@ describe("cost declaration", () => {
           costName: "twilio-voice-outbound-minute-fr-mobile",
           costSource: "platform",
           quantity: 1,
+        },
+      ],
+      { orgId: "org-1", userId: "user-1" }
+    );
+  });
+
+  it("declares a St Lucia mobile leg's minutes under the St Lucia mobile band", async () => {
+    h.findFirstCall.mockResolvedValue({
+      ...CALL_ROW,
+      to: "+17585187473",
+      costName: "twilio-voice-outbound-minute-lc-mobile",
+    });
+
+    await request(app)
+      .post("/webhooks/twilio/voice/status?ref=3f4a1c2e-0000-4000-8000-000000000abc")
+      .type("form")
+      .send({ CallSid: "CA1", CallStatus: "completed", CallDuration: "130" });
+
+    expect(h.addCosts).toHaveBeenCalledWith(
+      "run-1",
+      [
+        {
+          costName: "twilio-voice-outbound-minute-lc-mobile",
+          costSource: "platform",
+          quantity: 3,
         },
       ],
       { orgId: "org-1", userId: "user-1" }

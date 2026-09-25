@@ -12,7 +12,7 @@ import {
 import { createRun, updateRun, addCosts } from "../lib/runs-client";
 import { buildWebhookUrl } from "../lib/webhook-url";
 import {
-  resolveVoiceCostName,
+  resolveVoiceBand,
   billedMinutes,
   normalizePhone,
 } from "../lib/voice-pricing";
@@ -209,21 +209,23 @@ router.post("/calls", async (req: Request, res: Response) => {
     // Resolve the catalogue cost name for every leg BEFORE dialling. A
     // destination with no published band cannot have its minutes declared, so
     // the call is refused rather than billed under a neighbouring band.
-    const costName = resolveVoiceCostName(to);
+    const toBand = resolveVoiceBand(to);
+    const costName = toBand.costName;
     if (!costName) {
       return res.status(400).json({
         error: "Unsupported destination",
-        message: `No published voice cost band for ${to}. A new destination needs a costs-service catalogue row before it can be called.`,
+        message: `No published voice cost band for ${to} (${toBand.band}). A new destination needs a costs-service catalogue row before it can be called.`,
       });
     }
 
     let connectCostName: string | null = null;
     if (connectTo) {
-      connectCostName = resolveVoiceCostName(connectTo);
+      const connectBand = resolveVoiceBand(connectTo);
+      connectCostName = connectBand.costName;
       if (!connectCostName) {
         return res.status(400).json({
           error: "Unsupported connect destination",
-          message: `No published voice cost band for ${connectTo}. A new destination needs a costs-service catalogue row before it can be called.`,
+          message: `No published voice cost band for ${connectTo} (${connectBand.band}). A new destination needs a costs-service catalogue row before it can be called.`,
         });
       }
     }

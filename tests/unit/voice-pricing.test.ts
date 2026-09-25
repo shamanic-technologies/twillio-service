@@ -7,7 +7,12 @@ import {
   VOICE_COST_NAME_US,
   VOICE_COST_NAME_FR_LANDLINE,
   VOICE_COST_NAME_FR_MOBILE,
+  VOICE_COST_NAME_LC_LANDLINE,
+  VOICE_COST_NAME_LC_MOBILE,
   VOICE_COST_NAMES,
+  NANP_NON_US_AREA_CODES,
+  LC_MOBILE_PREFIXES,
+  resolveVoiceBand,
 } from "../../src/lib/voice-pricing";
 
 describe("cost names", () => {
@@ -18,6 +23,12 @@ describe("cost names", () => {
     );
     expect(VOICE_COST_NAME_FR_MOBILE).toBe(
       "twilio-voice-outbound-minute-fr-mobile"
+    );
+    expect(VOICE_COST_NAME_LC_LANDLINE).toBe(
+      "twilio-voice-outbound-minute-lc-landline"
+    );
+    expect(VOICE_COST_NAME_LC_MOBILE).toBe(
+      "twilio-voice-outbound-minute-lc-mobile"
     );
   });
 
@@ -44,6 +55,51 @@ describe("resolveVoiceCostName", () => {
     expect(resolveVoiceCostName("+33123456789")).toBe(
       VOICE_COST_NAME_FR_LANDLINE
     );
+  });
+
+  it("prices a US number in a Hawaii or toll-free range under the US band", () => {
+    // Twilio lists both at the same $0.014/min as the US & Canada row.
+    expect(resolveVoiceCostName("+18085550100")).toBe(VOICE_COST_NAME_US);
+    expect(resolveVoiceCostName("+18005550100")).toBe(VOICE_COST_NAME_US);
+  });
+
+  it("prices a St Lucia mobile range under the St Lucia mobile band", () => {
+    expect(resolveVoiceCostName("+17585187473")).toBe(VOICE_COST_NAME_LC_MOBILE);
+    expect(resolveVoiceCostName("+1 758 518 7473")).toBe(
+      VOICE_COST_NAME_LC_MOBILE
+    );
+    for (const prefix of LC_MOBILE_PREFIXES) {
+      const number = `+${prefix}${"0".repeat(11 - prefix.length)}`;
+      expect(resolveVoiceCostName(number)).toBe(VOICE_COST_NAME_LC_MOBILE);
+    }
+  });
+
+  it("prices any other St Lucia number under the St Lucia landline band", () => {
+    expect(resolveVoiceCostName("+17584521234")).toBe(
+      VOICE_COST_NAME_LC_LANDLINE
+    );
+  });
+
+  it("never prices a non-US NANP area code as the US", () => {
+    for (const areaCode of Object.keys(NANP_NON_US_AREA_CODES)) {
+      if (areaCode === "758") continue;
+      const number = `+1${areaCode}5550100`;
+      expect(resolveVoiceCostName(number)).toBeNull();
+      expect(resolveVoiceBand(number).band).toBe(
+        NANP_NON_US_AREA_CODES[areaCode]
+      );
+    }
+  });
+
+  it("names the missing band for an unpriced +1 destination", () => {
+    expect(resolveVoiceBand("+19075550100")).toEqual({
+      costName: null,
+      band: "United States - Alaska",
+    });
+    expect(resolveVoiceBand("+18765550100")).toEqual({
+      costName: null,
+      band: "Jamaica",
+    });
   });
 
   it("tolerates spacing and punctuation", () => {
