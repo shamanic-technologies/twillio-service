@@ -376,6 +376,68 @@ export const GetCallResponseSchema = z
   .object({ call: CallRecordSchema })
   .openapi("GetCallResponse");
 
+// --- Per-campaign call stats ---
+
+export const MAX_CALL_STATS_CAMPAIGNS = 200;
+
+export const CampaignCallStatsQuerySchema = z.object({
+  campaignIds: z
+    .string()
+    .min(1)
+    .openapi({
+      description: `Comma-separated campaign ids (1 to ${MAX_CALL_STATS_CAMPAIGNS}). Only calls of the caller's org (x-org-id) are counted.`,
+      example: "29c5606a-4b86-49f9-8ca8-ed7ddcf894f4",
+    }),
+});
+
+export const CallOutcomesSchema = z
+  .object({
+    connected: z.number().int().openapi({ description: "Rep accepted and the bridge to the prospect happened" }),
+    acceptedNotConnected: z.number().int().openapi({ description: "Rep pressed 1 to take the call but no bridge happened (no connect number, no second keypress, or the bridged leg did not pick up)" }),
+    answeredNotAccepted: z.number().int().openapi({ description: "The call completed without the accept keypress: picked up but nobody pressed 1, or a voicemail/machine answered" }),
+    noAnswer: z.number().int().openapi({ description: "Rang out unanswered (Twilio status no-answer)" }),
+    busy: z.number().int().openapi({ description: "Line busy (Twilio status busy)" }),
+    failed: z.number().int().openapi({ description: "Twilio refused or failed the call, including a call it rejected at creation (never placed)" }),
+    canceled: z.number().int().openapi({ description: "Canceled before it was answered" }),
+    inProgress: z.number().int().openapi({ description: "Not finished yet (queued, ringing, in progress)" }),
+  })
+  .openapi("CallOutcomes", {
+    description:
+      "Each call row lands in exactly ONE bucket, so the buckets add up to `requested`. The keypress facts (connected, accepted) decide first, then the Twilio status.",
+  });
+
+export const CallCountsSchema = z
+  .object({
+    requested: z.number().int().openapi({ description: "Call rows recorded: every POST /calls that got past validation, whether or not Twilio accepted it" }),
+    placed: z.number().int().openapi({ description: "Calls Twilio accepted and dialled (a Twilio call SID was issued). <= requested" }),
+    accepted: z.number().int().openapi({ description: "Calls the rep took by pressing 1 (the accept keypress). <= placed" }),
+    connected: z.number().int().openapi({ description: "Calls bridged to the prospect after the rep's second keypress (a booking call obtained). <= accepted" }),
+    outcomes: CallOutcomesSchema,
+    billedMinutes: z.number().int().openapi({ description: "Minutes billed on the placed leg (to the rep), a started minute counts in full. 0 while not yet reported" }),
+    connectBilledMinutes: z.number().int().openapi({ description: "Minutes billed on the bridged leg (to the prospect)" }),
+    totalBilledMinutes: z.number().int().openapi({ description: "billedMinutes + connectBilledMinutes" }),
+  })
+  .openapi("CallCounts");
+
+export const DailyCallCountsSchema = CallCountsSchema.extend({
+  day: z.string().openapi({ description: "UTC day the call was requested (row created), YYYY-MM-DD", example: "2026-10-07" }),
+}).openapi("DailyCallCounts");
+
+export const CampaignCallStatsSchema = z
+  .object({
+    campaignId: z.string(),
+    totals: CallCountsSchema.openapi({ description: "Since inception" }),
+    daily: z.array(DailyCallCountsSchema).openapi({ description: "One entry per UTC day with at least one call, ascending. Sums to `totals`. Empty when the campaign has no calls" }),
+  })
+  .openapi("CampaignCallStats");
+
+export const CampaignCallStatsResponseSchema = z
+  .object({
+    campaigns: z.array(CampaignCallStatsSchema).openapi({ description: "One entry per distinct requested campaign id, in request order. A campaign with no calls answers zeros" }),
+    totals: CallCountsSchema.openapi({ description: "Sum over every requested campaign" }),
+  })
+  .openapi("CampaignCallStatsResponse");
+
 export const TwilioVoiceWebhookSchema = z
   .object({
     CallSid: z.string().optional(),
@@ -719,6 +781,27 @@ registry.registerPath({
     },
     404: {
       description: "Call not found",
+      content: { "application/json": { schema: ErrorResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/calls/stats/by-campaign",
+  summary: "Call counts per campaign, since inception and per UTC day",
+  description:
+    "For one or several campaigns of the caller's org (x-org-id), what the AI instant call did: calls requested, placed (Twilio dialled), accepted (rep pressed 1), connected (bridged to the prospect), the outcome of each call, and billed minutes, since inception and per UTC day. Each call row is counted once. Unknown campaigns and campaigns with no calls answer zeros, never 404. No phone numbers or message contents.",
+  tags: ["Voice"],
+  security: [{ apiKey: [] }],
+  request: { query: CampaignCallStatsQuerySchema },
+  responses: {
+    200: {
+      description: "Per-campaign call counts",
+      content: { "application/json": { schema: CampaignCallStatsResponseSchema } },
+    },
+    400: {
+      description: "campaignIds missing, empty, or more than 200",
       content: { "application/json": { schema: ErrorResponseSchema } },
     },
   },
