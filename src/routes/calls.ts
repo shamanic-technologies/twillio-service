@@ -29,7 +29,15 @@ import {
   CallScriptInput,
   PriorMessage,
 } from "../lib/voice-script";
-import { PlaceCallRequestSchema } from "../schemas";
+import {
+  PlaceCallRequestSchema,
+  CampaignCallStatsQuerySchema,
+  MAX_CALL_STATS_CAMPAIGNS,
+} from "../schemas";
+import {
+  buildCampaignCallStats,
+  fetchCampaignCallRows,
+} from "../lib/call-stats";
 
 const router = Router();
 
@@ -355,6 +363,52 @@ router.post("/calls", async (req: Request, res: Response) => {
 // ─── GET /calls/:id ─────────────────────────────────────────────────────────
 // Read a call by its record id or its Twilio call SID. `accepted` is what tells
 // a taken call from one nobody picked up, nobody accepted, or a machine took.
+
+// ─── GET /calls/stats/by-campaign ───────────────────────────────────────────
+// Per-campaign call counts for the caller's org, since inception and per UTC
+// day. A campaign with no calls answers zeros, never 404.
+
+router.get("/calls/stats/by-campaign", async (req: Request, res: Response) => {
+  try {
+    const parsed = CampaignCallStatsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: "Invalid request",
+        message: "campaignIds query parameter is required",
+      });
+    }
+    const campaignIds = [
+      ...new Set(
+        parsed.data.campaignIds
+          .split(",")
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0)
+      ),
+    ];
+    if (campaignIds.length === 0) {
+      return res.status(400).json({
+        error: "Invalid request",
+        message: "campaignIds must name at least one campaign",
+      });
+    }
+    if (campaignIds.length > MAX_CALL_STATS_CAMPAIGNS) {
+      return res.status(400).json({
+        error: "Invalid request",
+        message: `campaignIds accepts at most ${MAX_CALL_STATS_CAMPAIGNS} campaigns`,
+      });
+    }
+
+    const orgId = res.locals.orgId as string;
+    const rows = await fetchCampaignCallRows(orgId, campaignIds);
+    return res.status(200).json(buildCampaignCallStats(campaignIds, rows));
+  } catch (err) {
+    console.error("GET /calls/stats/by-campaign error:", err);
+    return res.status(500).json({
+      error: "Internal server error",
+      message: err instanceof Error ? err.message : "Unknown error",
+    });
+  }
+});
 
 router.get("/calls/:id", async (req: Request, res: Response) => {
   try {

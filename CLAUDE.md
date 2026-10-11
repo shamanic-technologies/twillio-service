@@ -91,6 +91,12 @@ chat (the same AI brain the dashboard's "Edit with AI" uses, via api-service
 - **`GET /calls/:id`** (record id or Twilio call SID) is how a caller learns the
   outcome: `accepted` false means nobody took it (no answer, no keypress, or a
   machine), `connected` says whether the bridge happened.
+- **`GET /calls/stats/by-campaign?campaignIds=a,b`** (≤200, org-scoped on
+  `x-org-id`; `src/lib/call-stats.ts`) is how features-service shows a campaign's
+  AI instant call work: since inception + per UTC day (row `created_at`),
+  `requested ⊇ placed (has SID) ⊇ accepted ⊇ connected`, `outcomes` partitions
+  `requested` (keypress facts beat a stale status), billed minutes. No calls =
+  zeros, never 404. Never phone numbers or message text on this read.
 - **Flow legs** are Twilio-signed webhooks under `/webhooks/twilio/voice/*`
   (`answer` → `accept` → `connect` → `dial-status`, plus `status`). Each carries
   `?ref=<call record id>`; the row is inserted BEFORE the call is placed because
