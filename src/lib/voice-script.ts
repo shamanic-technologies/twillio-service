@@ -14,8 +14,8 @@ export interface CallReply {
   name: string;
   /** Their company, when known. */
   company?: string;
-  /** What they actually wrote. */
-  message: string;
+  /** What they actually wrote. Absent on a form fill: the answers say it. */
+  message?: string;
   /** Spelled-out identity, all optional on the wire. */
   firstName?: string;
   lastName?: string;
@@ -25,8 +25,24 @@ export interface CallReply {
   country?: string;
 }
 
+/** One question of a submitted form and the person's answer to it. */
+export interface FormAnswer {
+  question: string;
+  answer: string;
+}
+
+/**
+ * What the person did that rings the phone. Absent means a reply to a
+ * campaign, the original occasion, so a caller that never sends it hears
+ * exactly what it always did.
+ */
+export type CallOccasion =
+  | { type: "reply" }
+  | { type: "form"; formName: string; answers: FormAnswer[] };
+
 export interface CallScriptInput {
   reply: CallReply;
+  occasion?: CallOccasion;
   /** The brand whose campaign was replied to, spoken in the opener. */
   brandName?: string;
   /** Who the second keypress bridges to, when different from the replier. */
@@ -48,21 +64,52 @@ export function forSpeech(text: string): string {
   return `${flat.slice(0, MAX_SPOKEN_MESSAGE_CHARS).trimEnd()}, and it goes on.`;
 }
 
+/**
+ * A form field label as a person would say it. Lead forms often name fields
+ * like `how_soon_do_you_need_it?`, which text-to-speech would read underscore
+ * by underscore.
+ */
+function spokenQuestion(question: string): string {
+  return question.replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The form answers as one block of text: "Question? Answer." pairs, in the
+ * order the form asked them. Also what is stored as the message of a form fill.
+ */
+export function formAnswersText(answers: FormAnswer[]): string {
+  return answers
+    .map(({ question, answer }) => {
+      const q = spokenQuestion(question);
+      const a = answer.replace(/\s+/g, " ").trim();
+      const asked = /[?:.!]$/.test(q) ? q : `${q}:`;
+      const said = /[.!?]$/.test(a) ? a : `${a}.`;
+      return `${asked} ${said}`;
+    })
+    .join(" ");
+}
+
 /** The opener, played before any keypress. Asks for the accept keypress. */
 export function buildSummary(input: CallScriptInput): string {
   const forBrand = input.brandName ? ` for ${input.brandName}` : "";
-  return (
-    `Hello. This is Distribute${forBrand}. ` +
-    "A prospect just replied to your outreach campaign and they are interested. " +
-    "Press 1 to take this call."
-  );
+  const what =
+    input.occasion?.type === "form"
+      ? `Someone just filled in your form, ${input.occasion.formName}. `
+      : "A prospect just replied to your outreach campaign and they are interested. ";
+  return `Hello. This is Distribute${forBrand}. ${what}Press 1 to take this call.`;
 }
 
 /** The detail, played only once the call has been taken. */
 export function buildDetail(input: CallScriptInput): string {
   const { name, company, message } = input.reply;
   const who = company ? `${name} from ${company}` : name;
-  return `${who} replied to your campaign. They wrote: ${forSpeech(message)}`;
+  if (input.occasion?.type === "form") {
+    return (
+      `${who} filled in your form. ` +
+      `Here are their answers. ${forSpeech(formAnswersText(input.occasion.answers))}`
+    );
+  }
+  return `${who} replied to your campaign. They wrote: ${forSpeech(message ?? "")}`;
 }
 
 /** The connect offer, played when a number to connect to was supplied. */
