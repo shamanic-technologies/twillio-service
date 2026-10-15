@@ -78,6 +78,12 @@ chat (the same AI brain the dashboard's "Edit with AI" uses, via api-service
   and stored as the answers text, and `priorMessages` is refused (400: no
   thread, so no "email they replied to" option). The caller is any service
   (a workflow DAG today); nothing here assumes which one.
+- **`idempotencyKey` (optional) = one call per key per org, durably.** Unique
+  `(org_id, idempotency_key)` on `twilio_calls`. A repeat is answered BEFORE a
+  run is created: 200 with the first call's record + `replayed: true`, nobody
+  rung. A concurrent loser (insert conflict) closes its run as failed and
+  replays the winner. Released (set null) only when Twilio REFUSED the call,
+  since nobody was rung and a retry must still be able to ring.
 - **Then a MENU walks backwards through the thread.** The reply is read, the
   identity is stated in full (first name, last name, title, company, city,
   state, country, every one optional on the wire and simply not spoken when

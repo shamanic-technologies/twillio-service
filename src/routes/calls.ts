@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import express from "express";
-import { eq, or } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import twilio from "twilio";
 import { db } from "../db";
 import { twilioCalls } from "../db/schema";
@@ -198,6 +198,28 @@ async function loadCall(ref: string | undefined) {
 // only when a number to connect to was supplied) are they offered a second
 // keypress that bridges them to that person.
 
+async function findByIdempotencyKey(orgId: string, key: string) {
+  return db.query.twilioCalls.findFirst({
+    where: and(
+      eq(twilioCalls.orgId, orgId),
+      eq(twilioCalls.idempotencyKey, key)
+    ),
+  });
+}
+
+/** Answer a repeated request with the call the first one placed. */
+function replay(res: Response, call: typeof twilioCalls.$inferSelect) {
+  return res.status(200).json({
+    success: true,
+    callId: call.id,
+    callSid: call.callSid ?? undefined,
+    status: call.status,
+    costName: call.costName,
+    connectOffered: Boolean(call.connectTo),
+    replayed: true,
+  });
+}
+
 router.post("/calls", async (req: Request, res: Response) => {
   try {
     const parsed = PlaceCallRequestSchema.safeParse(req.body);
@@ -211,6 +233,13 @@ router.post("/calls", async (req: Request, res: Response) => {
     const data = parsed.data;
     const orgId = res.locals.orgId as string;
     const userId = res.locals.userId as string;
+
+    // Same key, same org: answer the first call, ring nobody. Checked before the
+    // run is created so a replay leaves no orphan run behind.
+    if (data.idempotencyKey) {
+      const earlier = await findByIdempotencyKey(orgId, data.idempotencyKey);
+      if (earlier) return replay(res, earlier);
+    }
 
     const to = normalizePhone(data.to);
     const connectTo = data.connectTo ? normalizePhone(data.connectTo) : null;
@@ -287,6 +316,7 @@ router.post("/calls", async (req: Request, res: Response) => {
         connectTo,
         connectName: data.connectName,
         brandName: data.brandName,
+        idempotencyKey: data.idempotencyKey,
         replyName: data.reply.name,
         replyCompany: data.reply.company,
         // A form fill wrote no message: its answers are what the person said.
@@ -307,7 +337,24 @@ router.post("/calls", async (req: Request, res: Response) => {
         connectCostName,
         status: "queued",
       })
+      .onConflictDoNothing({
+        target: [twilioCalls.orgId, twilioCalls.idempotencyKey],
+      })
       .returning();
+
+    if (!record) {
+      // A concurrent request with the same key won the insert. Close the run
+      // this one opened and answer the winner's call.
+      await updateRun(
+        runId,
+        "failed",
+        { orgId, userId },
+        "Duplicate idempotencyKey: the call was already requested"
+      ).catch(console.error);
+      const winner = await findByIdempotencyKey(orgId, data.idempotencyKey!);
+      if (!winner) throw new Error("idempotencyKey conflict with no matching call");
+      return replay(res, winner);
+    }
 
     const result = await placeCall({
       from,
@@ -317,9 +364,12 @@ router.post("/calls", async (req: Request, res: Response) => {
     });
 
     if (!result.success) {
+      // Twilio refused, so nobody was rung: release the key so the caller's
+      // retry of the same occurrence can still place the call.
       await db
         .update(twilioCalls)
         .set({
+          idempotencyKey: null,
           status: "failed",
           errorCode: result.errorCode,
           errorMessage: result.errorMessage,
