@@ -7,6 +7,7 @@ import {
   boolean,
   index,
   jsonb,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -175,6 +176,10 @@ export const twilioCalls = pgTable(
     connectTo: text("connect_to"),
     connectName: text("connect_name"),
     brandName: text("brand_name"),
+    // The caller's key for "this one occurrence": a second POST /calls with the
+    // same key in the same org places no call and answers this row. Released
+    // (set null) only when Twilio refused the call, since nobody was rung.
+    idempotencyKey: text("idempotency_key"),
     replyName: text("reply_name").notNull(),
     replyCompany: text("reply_company"),
     replyMessage: text("reply_message").notNull(),
@@ -229,5 +234,9 @@ export const twilioCalls = pgTable(
     index("twilio_calls_brand_id_idx").on(table.brandId),
     index("twilio_calls_campaign_id_idx").on(table.campaignId),
     index("twilio_calls_status_idx").on(table.status),
+    uniqueIndex("twilio_calls_org_idempotency_key_idx").on(
+      table.orgId,
+      table.idempotencyKey
+    ),
   ]
 );

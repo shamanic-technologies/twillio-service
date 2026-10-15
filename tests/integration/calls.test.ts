@@ -9,6 +9,7 @@ const h = vi.hoisted(() => {
   const chain = (result: unknown): any => {
     const p: any = Promise.resolve(result);
     p.onConflictDoUpdate = () => Promise.resolve(result);
+    p.onConflictDoNothing = () => chain(result);
     p.returning = () => Promise.resolve(result);
     p.where = () => Promise.resolve(result);
     p.set = () => chain(result);
@@ -321,6 +322,92 @@ describe("POST /calls", () => {
       });
     expect(res.status).toBe(400);
     expect(h.placeCall).not.toHaveBeenCalled();
+  });
+
+  it("places no second call for a key already used, and answers the first call", async () => {
+    h.findFirstCall.mockResolvedValue({ ...CALL_ROW, idempotencyKey: "ai-instant-call:event:e1" });
+    const res = await request(app)
+      .post("/calls")
+      .set(AUTH)
+      .send({ ...BODY, idempotencyKey: "ai-instant-call:event:e1" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      success: true,
+      callId: REF,
+      callSid: "CA1",
+      costName: "twilio-voice-outbound-minute-us",
+      connectOffered: true,
+      replayed: true,
+    });
+    expect(h.placeCall).not.toHaveBeenCalled();
+    expect(h.createRun).not.toHaveBeenCalled();
+    expect(h.insert).not.toHaveBeenCalled();
+  });
+
+  it("stores a new key and places the call once", async () => {
+    let values: any;
+    h.findFirstCall.mockResolvedValue(undefined);
+    h.insert.mockImplementation(() => ({
+      values: (v: any) => {
+        values = v;
+        return h.chain([CALL_ROW]);
+      },
+    }));
+    const res = await request(app)
+      .post("/calls")
+      .set(AUTH)
+      .send({ ...BODY, idempotencyKey: "ai-instant-call:event:e2" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.replayed).toBeUndefined();
+    expect(values.idempotencyKey).toBe("ai-instant-call:event:e2");
+    expect(h.placeCall).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers the winner and dials nothing when a concurrent request took the key", async () => {
+    h.findFirstCall
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ ...CALL_ROW, idempotencyKey: "k" });
+    h.insert.mockImplementation(() => h.chain([]));
+    const res = await request(app)
+      .post("/calls")
+      .set(AUTH)
+      .send({ ...BODY, idempotencyKey: "k" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.replayed).toBe(true);
+    expect(res.body.callId).toBe(REF);
+    expect(h.placeCall).not.toHaveBeenCalled();
+    expect(h.updateRun).toHaveBeenCalledWith(
+      "run-1",
+      "failed",
+      expect.anything(),
+      expect.stringContaining("idempotencyKey")
+    );
+  });
+
+  it("releases the key when Twilio refuses the call, since nobody was rung", async () => {
+    let set: any;
+    h.findFirstCall.mockResolvedValue(undefined);
+    h.update.mockImplementation(() => ({
+      set: (v: any) => {
+        set = set ?? v;
+        return h.chain([]);
+      },
+    }));
+    h.placeCall.mockResolvedValue({
+      success: false,
+      errorCode: 21215,
+      errorMessage: "Geo permission",
+    });
+    const res = await request(app)
+      .post("/calls")
+      .set(AUTH)
+      .send({ ...BODY, idempotencyKey: "k" });
+
+    expect(res.status).toBe(502);
+    expect(set).toMatchObject({ idempotencyKey: null, status: "failed" });
   });
 
   it("rejects a body with no reply", async () => {
