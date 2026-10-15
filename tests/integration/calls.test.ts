@@ -254,6 +254,75 @@ describe("POST /calls", () => {
     );
   });
 
+  it("freezes today's reply script byte for byte when no occasion is sent", async () => {
+    let values: any;
+    h.insert.mockImplementation(() => ({
+      values: (v: any) => {
+        values = v;
+        return h.chain([CALL_ROW]);
+      },
+    }));
+    const res = await request(app).post("/calls").set(AUTH).send(BODY);
+
+    expect(res.status).toBe(200);
+    expect(values.summary).toBe(
+      "Hello. This is Distribute for Acme. A prospect just replied to your outreach campaign and they are interested. Press 1 to take this call."
+    );
+    expect(values.detail).toBe(
+      "Dana Reyes from Northwind replied to your campaign. They wrote: Sounds great"
+    );
+    expect(values.replyMessage).toBe("Sounds great");
+  });
+
+  it("places a form-fill call that names the form and reads the answers", async () => {
+    let values: any;
+    h.insert.mockImplementation(() => ({
+      values: (v: any) => {
+        values = v;
+        return h.chain([CALL_ROW]);
+      },
+    }));
+    const res = await request(app)
+      .post("/calls")
+      .set(AUTH)
+      .send({
+        to: "+13155550100",
+        connectTo: "+33612345678",
+        brandName: "Doc Dinners",
+        reply: { name: "Dev Patel" },
+        occasion: {
+          type: "form",
+          formName: "Doc Dinners Meta lead form",
+          answers: [{ question: "How many guests", answer: "About 40" }],
+        },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.connectOffered).toBe(true);
+    expect(values.summary).toBe(
+      "Hello. This is Distribute for Doc Dinners. Someone just filled in your form, Doc Dinners Meta lead form. Press 1 to take this call."
+    );
+    expect(values.detail).toBe(
+      "Dev Patel filled in your form. Here are their answers. How many guests: About 40."
+    );
+    expect(values.replyMessage).toBe("How many guests: About 40.");
+    expect(values.priorMessages).toBeUndefined();
+  });
+
+  it("refuses a thread on a form fill", async () => {
+    const res = await request(app)
+      .post("/calls")
+      .set(AUTH)
+      .send({
+        to: "+13155550100",
+        reply: { name: "Dev Patel" },
+        occasion: { type: "form", formName: "F", answers: [{ question: "Q", answer: "A" }] },
+        priorMessages: [{ direction: "outbound", text: "hi" }],
+      });
+    expect(res.status).toBe(400);
+    expect(h.placeCall).not.toHaveBeenCalled();
+  });
+
   it("rejects a body with no reply", async () => {
     const res = await request(app)
       .post("/calls")
@@ -378,6 +447,27 @@ describe("the accept leg", () => {
     );
     expect(res.text).toContain("Press 2 to hear the email they replied to.");
     expect(res.text).not.toContain("undefined");
+  });
+
+  it("plays a form fill's answers with no thread option, and still offers the connect", async () => {
+    h.findFirstCall.mockResolvedValue({
+      ...CALL_ROW,
+      replyName: "Dev Patel",
+      replyCompany: null,
+      replyMessage: "How many guests: About 40.",
+      detail: "Dev Patel filled in your form. Here are their answers. How many guests: About 40.",
+      priorMessages: null,
+    });
+    const res = await request(app)
+      .post(`/webhooks/twilio/voice/accept?ref=${REF}`)
+      .type("form")
+      .send({ Digits: "1" });
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("Here are their answers. How many guests: About 40.");
+    expect(res.text).toContain("Press 1 now to be connected to Dev Patel.");
+    expect(res.text).not.toContain("Press 2");
+    expect(res.text).not.toContain("replied");
   });
 
   it("leaves the call untaken and says nothing more on any other key", async () => {

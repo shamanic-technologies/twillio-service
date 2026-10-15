@@ -26,6 +26,7 @@ import {
   buildMenuPrompt,
   buildPriorMessageLine,
   buildHearOption,
+  formAnswersText,
   CallScriptInput,
   PriorMessage,
 } from "../lib/voice-script";
@@ -262,6 +263,7 @@ router.post("/calls", async (req: Request, res: Response) => {
     const from = getVoiceFromNumber();
     const input: CallScriptInput = {
       reply: data.reply,
+      occasion: data.occasion,
       brandName: data.brandName,
       connectName: data.connectName,
       hasConnect: Boolean(connectTo),
@@ -287,7 +289,11 @@ router.post("/calls", async (req: Request, res: Response) => {
         brandName: data.brandName,
         replyName: data.reply.name,
         replyCompany: data.reply.company,
-        replyMessage: data.reply.message,
+        // A form fill wrote no message: its answers are what the person said.
+        replyMessage:
+          data.occasion?.type === "form"
+            ? formAnswersText(data.occasion.answers)
+            : (data.reply.message as string),
         replyFirstName: data.reply.firstName,
         replyLastName: data.reply.lastName,
         replyTitle: data.reply.title,
