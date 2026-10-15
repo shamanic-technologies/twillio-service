@@ -364,6 +364,15 @@ export const PlaceCallRequestSchema = z
       .openapi({ description: "Parent run ID for cost/run linkage" }),
     brandId: z.string().optional().openapi({ description: "Brand ID" }),
     campaignId: z.string().optional().openapi({ description: "Campaign ID" }),
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(500)
+      .optional()
+      .openapi({
+        description:
+          "One call per key per org, durably. A second POST with the same key places no call and answers the first call's record (replayed: true). A key whose call Twilio refused is released, since nobody was rung.",
+      }),
   })
   .superRefine((body, ctx) => {
     if (body.occasion?.type === "form") {
@@ -400,6 +409,10 @@ export const PlaceCallResponseSchema = z
     connectOffered: z
       .boolean()
       .openapi({ description: "Whether a connect number was supplied" }),
+    replayed: z
+      .boolean()
+      .optional()
+      .openapi({ description: "True when an earlier request with the same idempotencyKey already placed this call; no new call was placed" }),
   })
   .openapi("PlaceCallResponse");
 
