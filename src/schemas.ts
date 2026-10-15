@@ -258,7 +258,11 @@ export const CallReplySchema = z
     message: z
       .string()
       .min(1)
-      .openapi({ description: "What the replier actually wrote" }),
+      .optional()
+      .openapi({
+        description:
+          "What the replier actually wrote. Required for a reply; omit it on a form fill, where occasion.answers say it",
+      }),
     firstName: z
       .string()
       .optional()
@@ -286,14 +290,52 @@ export const PriorMessageSchema = z
   })
   .openapi("PriorMessage");
 
+export const FormAnswerSchema = z
+  .object({
+    question: z
+      .string()
+      .min(1)
+      .openapi({ description: "The form question, as the form labels it" }),
+    answer: z
+      .string()
+      .min(1)
+      .openapi({ description: "What the person answered" }),
+  })
+  .openapi("FormAnswer");
+
+export const CallOccasionSchema = z
+  .discriminatedUnion("type", [
+    z
+      .object({ type: z.literal("reply") })
+      .openapi({ description: "The person replied to a campaign (the default)" }),
+    z
+      .object({
+        type: z.literal("form"),
+        formName: z
+          .string()
+          .min(1)
+          .openapi({ description: "The form's name, spoken in the opener, e.g. \"Doc Dinners - Meta lead form\"" }),
+        answers: z
+          .array(FormAnswerSchema)
+          .min(1)
+          .openapi({ description: "Question and answer pairs, in form order; read aloud after the accept keypress" }),
+      })
+      .openapi({ description: "The person submitted a form. There is no email thread, so priorMessages is refused" }),
+  ])
+  .openapi("CallOccasion", {
+    description:
+      "What the person did that rings the phone. Omit it for a reply to a campaign: the call then says exactly what it always said",
+  });
+
 export const PlaceCallRequestSchema = z
   .object({
     to: z
       .string()
       .openapi({ description: "Number to ring (E.164), e.g. the sales rep" }),
     reply: CallReplySchema.openapi({
-      description: "The reply the call is about; spoken after the accept keypress",
+      description: "The person the call is about and, for a reply, what they wrote; spoken after the accept keypress",
     }),
+    occasion: CallOccasionSchema.optional(),
     brandName: z
       .string()
       .optional()
@@ -322,6 +364,25 @@ export const PlaceCallRequestSchema = z
       .openapi({ description: "Parent run ID for cost/run linkage" }),
     brandId: z.string().optional().openapi({ description: "Brand ID" }),
     campaignId: z.string().optional().openapi({ description: "Campaign ID" }),
+  })
+  .superRefine((body, ctx) => {
+    if (body.occasion?.type === "form") {
+      if (body.priorMessages && body.priorMessages.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["priorMessages"],
+          message: "A form fill has no email thread: send no priorMessages",
+        });
+      }
+      return;
+    }
+    if (!body.reply.message) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["reply", "message"],
+        message: "reply.message is required unless occasion.type is \"form\"",
+      });
+    }
   })
   .openapi("PlaceCallRequest");
 

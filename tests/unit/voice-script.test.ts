@@ -295,3 +295,99 @@ describe("PlaceCallRequestSchema with the thread", () => {
     ).toBe(false);
   });
 });
+
+describe("the occasion", () => {
+  const form: CallScriptInput = {
+    reply: { name: "Dev Patel" },
+    occasion: {
+      type: "form",
+      formName: "Doc Dinners Meta lead form",
+      answers: [
+        { question: "how_many_guests?", answer: "About 40" },
+        { question: "When is the event", answer: "Next Friday" },
+      ],
+    },
+    brandName: "Doc Dinners",
+    hasConnect: true,
+  };
+
+  it("keeps the reply script byte-identical when no occasion is sent", () => {
+    expect(buildSummary(input)).toBe(
+      "Hello. This is Distribute for Acme. A prospect just replied to your outreach campaign and they are interested. Press 1 to take this call."
+    );
+    expect(buildDetail(input)).toBe(
+      "Dana Reyes from Northwind replied to your campaign. They wrote: Sounds great, call me"
+    );
+    expect(buildSummary({ ...input, occasion: { type: "reply" } })).toBe(
+      buildSummary(input)
+    );
+    expect(buildDetail({ ...input, occasion: { type: "reply" } })).toBe(
+      buildDetail(input)
+    );
+  });
+
+  it("says a form was filled in, by its name, for the brand", () => {
+    expect(buildSummary(form)).toBe(
+      "Hello. This is Distribute for Doc Dinners. Someone just filled in your form, Doc Dinners Meta lead form. Press 1 to take this call."
+    );
+    expect(buildSummary(form)).not.toContain("replied");
+  });
+
+  it("reads each question and its answer, never 'replied'", () => {
+    const detail = buildDetail(form);
+    expect(detail).toBe(
+      "Dev Patel filled in your form. Here are their answers. how many guests? About 40. When is the event: Next Friday."
+    );
+    expect(detail).not.toContain("replied");
+  });
+
+  it("trims long answers for speech like a reply", () => {
+    const long = buildDetail({
+      ...form,
+      occasion: {
+        type: "form",
+        formName: "F",
+        answers: [{ question: "Q", answer: "x ".repeat(MAX_SPOKEN_MESSAGE_CHARS) }],
+      },
+    });
+    expect(long).toContain(", and it goes on.");
+  });
+});
+
+describe("PlaceCallRequestSchema occasion", () => {
+  const base = { to: "+13155550100", reply: { name: "Dev Patel" } };
+  const occasion = {
+    type: "form",
+    formName: "Doc Dinners Meta lead form",
+    answers: [{ question: "Guests", answer: "40" }],
+  };
+
+  it("accepts a form fill with no message", () => {
+    expect(PlaceCallRequestSchema.safeParse({ ...base, occasion }).success).toBe(true);
+  });
+
+  it("still requires a message for a reply", () => {
+    expect(PlaceCallRequestSchema.safeParse(base).success).toBe(false);
+    expect(
+      PlaceCallRequestSchema.safeParse({ ...base, occasion: { type: "reply" } }).success
+    ).toBe(false);
+  });
+
+  it("refuses a thread on a form fill", () => {
+    const r = PlaceCallRequestSchema.safeParse({
+      ...base,
+      occasion,
+      priorMessages: [{ direction: "outbound", text: "hi" }],
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("refuses a form with no answers or no name", () => {
+    expect(
+      PlaceCallRequestSchema.safeParse({ ...base, occasion: { ...occasion, answers: [] } }).success
+    ).toBe(false);
+    expect(
+      PlaceCallRequestSchema.safeParse({ ...base, occasion: { ...occasion, formName: "" } }).success
+    ).toBe(false);
+  });
+});

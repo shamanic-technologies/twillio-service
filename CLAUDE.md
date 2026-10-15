@@ -70,6 +70,14 @@ chat (the same AI brain the dashboard's "Edit with AI" uses, via api-service
   call**. Nothing but that opener plays before the keypress, so a voicemail hears
   only the summary and the call is never recorded as taken. Once taken they hear
   who replied, which company, and what they wrote.
+- **`occasion` says what the person DID.** Absent (or `{type:"reply"}`) = a
+  reply to a campaign, and the script is byte-identical to before the field
+  existed. `{type:"form", formName, answers:[{question,answer}]}` = a form fill
+  (e.g. a Meta lead form): the opener names the form, the detail reads each
+  question and answer (same speech cap as a reply), `reply.message` is omitted
+  and stored as the answers text, and `priorMessages` is refused (400: no
+  thread, so no "email they replied to" option). The caller is any service
+  (a workflow DAG today); nothing here assumes which one.
 - **Then a MENU walks backwards through the thread.** The reply is read, the
   identity is stated in full (first name, last name, title, company, city,
   state, country, every one optional on the wire and simply not spoken when
