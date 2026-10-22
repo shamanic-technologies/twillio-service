@@ -13,6 +13,7 @@ import { runChat } from "../lib/chat-client";
 import { resolveOrProvisionAccountByPhone } from "../lib/client-client";
 import { createRun, updateRun, addCosts } from "../lib/runs-client";
 import { SendWhatsAppRequestSchema } from "../schemas";
+import { errorMessage } from "../lib/db-error";
 
 const router = Router();
 
@@ -206,7 +207,7 @@ export async function handleInboundWhatsApp(
       run.id,
       "failed",
       { orgId, userId },
-      err instanceof Error ? err.message : undefined
+      err instanceof Error ? errorMessage(err) : undefined
     ).catch(console.error);
     throw err;
   }
@@ -303,7 +304,7 @@ router.post("/send/whatsapp", async (req: Request, res: Response) => {
       console.error("Failed to create run:", err);
       return res.status(500).json({
         error: "Failed to create run in runs-service",
-        message: err instanceof Error ? err.message : "Unknown error",
+        message: errorMessage(err),
       });
     }
 
@@ -374,7 +375,7 @@ router.post("/send/whatsapp", async (req: Request, res: Response) => {
     console.error("POST /send/whatsapp error:", err);
     return res.status(500).json({
       error: "Internal server error",
-      message: err instanceof Error ? err.message : "Unknown error",
+      message: errorMessage(err),
     });
   }
 });

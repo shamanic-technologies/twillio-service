@@ -3,6 +3,7 @@ import { eq, inArray, and, sql } from "drizzle-orm";
 import { db } from "../db";
 import { twilioSendings, twilioStatusUpdates } from "../db/schema";
 import { StatsRequestSchema } from "../schemas";
+import { errorMessage } from "../lib/db-error";
 
 const router = Router();
 
@@ -39,7 +40,7 @@ router.get("/status/:messageSid", async (req: Request, res: Response) => {
     console.error("GET /status/:messageSid error:", err);
     return res.status(500).json({
       error: "Internal server error",
-      message: err instanceof Error ? err.message : "Unknown error",
+      message: errorMessage(err),
     });
   }
 });
@@ -61,7 +62,7 @@ router.get("/status/by-org/:orgId", async (req: Request, res: Response) => {
     console.error("GET /status/by-org/:orgId error:", err);
     return res.status(500).json({
       error: "Internal server error",
-      message: err instanceof Error ? err.message : "Unknown error",
+      message: errorMessage(err),
     });
   }
 });
@@ -82,7 +83,7 @@ router.get("/status/by-run/:runId", async (req: Request, res: Response) => {
     console.error("GET /status/by-run/:runId error:", err);
     return res.status(500).json({
       error: "Internal server error",
-      message: err instanceof Error ? err.message : "Unknown error",
+      message: errorMessage(err),
     });
   }
 });
@@ -132,7 +133,7 @@ router.post("/stats", async (req: Request, res: Response) => {
     console.error("POST /stats error:", err);
     return res.status(500).json({
       error: "Internal server error",
-      message: err instanceof Error ? err.message : "Unknown error",
+      message: errorMessage(err),
     });
   }
 });
