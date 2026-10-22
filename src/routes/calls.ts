@@ -39,6 +39,7 @@ import {
   buildCampaignCallStats,
   fetchCampaignCallRows,
 } from "../lib/call-stats";
+import { errorMessage } from "../lib/db-error";
 
 const router = Router();
 
@@ -285,7 +286,7 @@ router.post("/calls", async (req: Request, res: Response) => {
       console.error("Failed to create run:", err);
       return res.status(500).json({
         error: "Failed to create run in runs-service",
-        message: err instanceof Error ? err.message : "Unknown error",
+        message: errorMessage(err),
       });
     }
 
@@ -411,7 +412,7 @@ router.post("/calls", async (req: Request, res: Response) => {
     console.error("POST /calls error:", err);
     return res.status(500).json({
       error: "Internal server error",
-      message: err instanceof Error ? err.message : "Unknown error",
+      message: errorMessage(err),
     });
   }
 });
@@ -461,7 +462,7 @@ router.get("/calls/stats/by-campaign", async (req: Request, res: Response) => {
     console.error("GET /calls/stats/by-campaign error:", err);
     return res.status(500).json({
       error: "Internal server error",
-      message: err instanceof Error ? err.message : "Unknown error",
+      message: errorMessage(err),
     });
   }
 });
@@ -483,7 +484,7 @@ router.get("/calls/:id", async (req: Request, res: Response) => {
     console.error("GET /calls/:id error:", err);
     return res.status(500).json({
       error: "Internal server error",
-      message: err instanceof Error ? err.message : "Unknown error",
+      message: errorMessage(err),
     });
   }
 });
