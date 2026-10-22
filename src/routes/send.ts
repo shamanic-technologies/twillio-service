@@ -10,6 +10,7 @@ import {
   SendSmsRequestSchema,
   BatchSendSmsRequestSchema,
 } from "../schemas";
+import { errorMessage } from "../lib/db-error";
 
 const router = Router();
 
@@ -46,7 +47,7 @@ router.post("/send", async (req: Request, res: Response) => {
       console.error("Failed to create run:", err);
       return res.status(500).json({
         error: "Failed to create run in runs-service",
-        message: err instanceof Error ? err.message : "Unknown error",
+        message: errorMessage(err),
       });
     }
 
@@ -123,7 +124,7 @@ router.post("/send", async (req: Request, res: Response) => {
     console.error("POST /send error:", err);
     return res.status(500).json({
       error: "Internal server error",
-      message: err instanceof Error ? err.message : "Unknown error",
+      message: errorMessage(err),
     });
   }
 });
@@ -238,7 +239,7 @@ router.post("/send/batch", async (req: Request, res: Response) => {
     console.error("POST /send/batch error:", err);
     return res.status(500).json({
       error: "Internal server error",
-      message: err instanceof Error ? err.message : "Unknown error",
+      message: errorMessage(err),
     });
   }
 });
