@@ -14,6 +14,8 @@ import { resolveOrProvisionAccountByPhone } from "../lib/client-client";
 import { createRun, updateRun, addCosts } from "../lib/runs-client";
 import { SendWhatsAppRequestSchema } from "../schemas";
 import { errorMessage } from "../lib/db-error";
+import { declareRecordedSend, sendSubjectColumns } from "../lib/outcome-declaration";
+import { COPILOT_SUPPORT, WHATSAPP_INBOUND_TASK } from "../lib/ledger-history";
 
 const router = Router();
 
@@ -119,12 +121,15 @@ export async function handleInboundWhatsApp(
       });
   }
 
-  // 2. Track a run for this message.
+  // 2. Track a run for this message. The Copilot over WhatsApp is a support
+  //    function (no outcome by design): marked at creation, its chat-service
+  //    subtree's spend is reported apart (ledger-history.ts).
   const run = await createRun({
     orgId,
     userId,
     serviceName: "twilio-service",
-    taskName: "whatsapp-inbound",
+    taskName: WHATSAPP_INBOUND_TASK,
+    support: COPILOT_SUPPORT,
   });
 
   try {
@@ -328,11 +333,14 @@ router.post("/send/whatsapp", async (req: Request, res: Response) => {
       });
     }
 
+    const subjectColumns = sendSubjectColumns(data);
     const [record] = await db
       .insert(twilioSendings)
       .values({
         messageSid: result.messageSid!,
         channel: "whatsapp",
+        sendRunId: runId,
+        ...subjectColumns,
         orgId,
         userId,
         runId: data.parentRunId,
@@ -362,6 +370,7 @@ router.post("/send/whatsapp", async (req: Request, res: Response) => {
       } catch (err) {
         console.error("Failed to add costs/complete run:", err);
       }
+      declareRecordedSend({ sendingId: record.id, sendRunId: runId, orgId, ...subjectColumns });
     }
 
     return res.status(200).json({

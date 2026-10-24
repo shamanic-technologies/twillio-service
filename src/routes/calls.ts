@@ -10,6 +10,7 @@ import {
   validateWebhookSignature,
 } from "../lib/twilio-client";
 import { createRun, updateRun, addCosts } from "../lib/runs-client";
+import { UNORDERED_CALL_SUPPORT } from "../lib/ledger-history";
 import { buildWebhookUrl } from "../lib/webhook-url";
 import {
   resolveVoiceBand,
@@ -280,6 +281,9 @@ router.post("/calls", async (req: Request, res: Response) => {
         parentRunId: data.parentRunId,
         brandId: data.brandId,
         campaignId: data.campaignId,
+        // A pipe's call is a child of the pipe's run, which declares the
+        // `booking_call` it rides. A call no pipe ordered is a staff probe.
+        ...(data.parentRunId ? {} : { support: UNORDERED_CALL_SUPPORT }),
       });
       runId = run.id;
     } catch (err) {

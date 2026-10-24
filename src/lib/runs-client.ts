@@ -44,6 +44,20 @@ export interface CreateRunParams {
   userId?: string;
   brandId?: string;
   campaignId?: string;
+  /**
+   * The run serves a SUPPORT function (spend that produces no outcome by
+   * design): runs-service marks it at creation, its cost and its non-declaring
+   * subtree's never ride an outcome (agent-config skill `cost-accounting`).
+   */
+  support?: RunSupport;
+}
+
+/** runs-service support functions this service uses (closed list owned by runs-service). */
+export type SupportFunction = "copilot" | "staff_experiment";
+
+export interface RunSupport {
+  kind: SupportFunction;
+  reason: string;
 }
 
 export interface CostItem {
@@ -68,6 +82,13 @@ function identityHeaders(identity: RunIdentity): Record<string, string> {
 
 // --- HTTP helpers ---
 
+/** A runs-service refusal, with its status so callers tell a permanent 4xx from a transient failure. */
+export class RunsHttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+  }
+}
+
 async function runsRequest<T>(
   path: string,
   options: { method?: string; body?: unknown; headers?: Record<string, string> } = {}
@@ -88,7 +109,8 @@ async function runsRequest<T>(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(
+    throw new RunsHttpError(
+      response.status,
       `runs-service ${method} ${path} failed: ${response.status} - ${errorText}`
     );
   }
@@ -112,6 +134,7 @@ export async function createRun(params: CreateRunParams): Promise<Run> {
       taskName: params.taskName,
       ...(params.brandId ? { brandIds: [params.brandId] } : {}),
       ...(params.campaignId ? { campaignId: params.campaignId } : {}),
+      ...(params.support ? { support: params.support } : {}),
     },
   });
 }
@@ -140,3 +163,62 @@ export async function addCosts(
     body: { items },
   });
 }
+
+// --- Outcome ledger (COST-ACCOUNTING-1023) ---
+
+export interface OutcomeOccurrence {
+  outcomeKey: string;
+  subjectService: string;
+  subjectId: string;
+}
+
+export interface OutcomeDeclaration {
+  produced: OutcomeOccurrence[];
+  consumed: OutcomeOccurrence[];
+  /** `run_started_at` = the occurrence happened when its run started (on time or backfilled). */
+  occurredAt: "run_started_at";
+}
+
+/**
+ * State on runs-service's general ledger the outcome occurrences a run of ours
+ * produced and consumed. Idempotent on runs-service's side: a replay answers
+ * `already_recorded` and records nothing twice.
+ */
+export async function declareRunOutcomes(
+  runId: string,
+  declaration: OutcomeDeclaration,
+  identity: RunIdentity
+): Promise<{ recordedCount: number; alreadyRecordedCount: number }> {
+  return runsRequest(`/v1/runs/${runId}/outcomes`, {
+    method: "POST",
+    headers: identityHeaders(identity),
+    body: declaration,
+  });
+}
+
+export interface OwnSupportMark {
+  kind: SupportFunction;
+  reason: string;
+  markedBy: string;
+  runIds?: string[];
+  taskNames?: string[];
+  topLevelOnly?: boolean;
+}
+
+/**
+ * Mark runs OF THIS SERVICE as support through runs-service's owner door
+ * (x-service-name = twilio-service): by runIds (all or nothing) or by a
+ * selection over our own runs. Idempotent: an already marked run is counted,
+ * never marked twice.
+ */
+export async function markOwnRunsSupport(
+  mark: OwnSupportMark
+): Promise<{ markedCount: number; alreadyMarkedCount: number }> {
+  return runsRequest("/v1/platform-runs/support-marks/apply", {
+    method: "POST",
+    headers: { "x-service-name": RUNS_SERVICE_NAME },
+    body: mark,
+  });
+}
+
+export const RUNS_SERVICE_NAME = "twilio-service";
