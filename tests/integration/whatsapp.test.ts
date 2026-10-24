@@ -27,6 +27,7 @@ const h = vi.hoisted(() => {
     createRun: vi.fn(),
     updateRun: vi.fn(),
     addCosts: vi.fn(),
+    declareRunOutcomes: vi.fn(),
   };
 });
 
@@ -53,6 +54,7 @@ vi.mock("../../src/lib/runs-client", () => ({
   createRun: h.createRun,
   updateRun: h.updateRun,
   addCosts: h.addCosts,
+  declareRunOutcomes: h.declareRunOutcomes,
 }));
 
 vi.mock("../../src/lib/twilio-client", async (importOriginal) => {
@@ -122,6 +124,8 @@ describe("handleInboundWhatsApp", () => {
         userId: "user-new",
         serviceName: "twilio-service",
         taskName: "whatsapp-inbound",
+        // The Copilot over WhatsApp is support by design (no outcome).
+        support: expect.objectContaining({ kind: "copilot" }),
       })
     );
     // Forwarded to the chat-service agent, scoped to the resolved account.
@@ -298,6 +302,51 @@ describe("POST /send/whatsapp", () => {
       orgId: "org-1",
       userId: "user-1",
     });
+  });
+
+  it("declares message_sent for the lead it reached, on its own run, dated at the run start", async () => {
+    h.declareRunOutcomes.mockResolvedValue({ recordedCount: 2, alreadyRecordedCount: 0 });
+    const res = await request(app)
+      .post("/send/whatsapp")
+      .set("X-API-Key", "test-secret-key")
+      .set("X-Org-Id", "org-1")
+      .set("X-User-Id", "user-1")
+      .send({ to: "+14155551234", body: "hi", leadId: "lead-1", consumedOutcomeKeys: ["message_written"] });
+
+    expect(res.status).toBe(200);
+    await new Promise((r) => setImmediate(r));
+    expect(h.declareRunOutcomes).toHaveBeenCalledWith(
+      "run-send",
+      {
+        produced: [{ outcomeKey: "message_sent", subjectService: "lead-service", subjectId: "lead-1" }],
+        consumed: [{ outcomeKey: "message_written", subjectService: "lead-service", subjectId: "lead-1" }],
+        occurredAt: "run_started_at",
+      },
+      { orgId: "org-1" }
+    );
+  });
+
+  it("declares nothing when the caller names nobody", async () => {
+    const res = await request(app)
+      .post("/send/whatsapp")
+      .set("X-API-Key", "test-secret-key")
+      .set("X-Org-Id", "org-1")
+      .set("X-User-Id", "user-1")
+      .send({ to: "+14155551234", body: "your code is 1234" });
+    expect(res.status).toBe(200);
+    await new Promise((r) => setImmediate(r));
+    expect(h.declareRunOutcomes).not.toHaveBeenCalled();
+  });
+
+  it("refuses consumed outcomes with no subject", async () => {
+    const res = await request(app)
+      .post("/send/whatsapp")
+      .set("X-API-Key", "test-secret-key")
+      .set("X-Org-Id", "org-1")
+      .set("X-User-Id", "user-1")
+      .send({ to: "+14155551234", body: "hi", consumedOutcomeKeys: ["message_written"] });
+    expect(res.status).toBe(400);
+    expect(h.createRun).not.toHaveBeenCalled();
   });
 
   it("returns 400 on a missing recipient", async () => {
