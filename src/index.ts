@@ -15,6 +15,7 @@ import statusRoutes from "./routes/status";
 import webhooksRoutes from "./routes/webhooks";
 import whatsappRoutes from "./routes/whatsapp";
 import callsRoutes from "./routes/calls";
+import { runLedgerHistoryInBackground } from "./lib/ledger-history";
 
 const app = express();
 const PORT = process.env.PORT || 3011;
@@ -84,6 +85,8 @@ if (process.env.NODE_ENV !== "test") {
       console.log("Migrations complete");
       app.listen(Number(PORT), "::", () => {
         console.log(`Service running on port ${PORT}`);
+        // Ledger history (idempotent, after the port binds, never awaited).
+        runLedgerHistoryInBackground();
       });
     })
     .catch((err) => {

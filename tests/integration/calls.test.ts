@@ -137,6 +137,8 @@ describe("POST /calls", () => {
         orgId: "org-1",
         serviceName: "twilio-service",
         taskName: "place-call",
+        // No pipe ordered it (no parent run): a staff probe, support.
+        support: expect.objectContaining({ kind: "staff_experiment" }),
       })
     );
     // The answer webhook, not a full announcement, is what Twilio fetches.
@@ -188,6 +190,8 @@ describe("POST /calls", () => {
     expect(h.createRun).toHaveBeenCalledWith(
       expect.objectContaining({ orgId: "org-1", parentRunId: "parent-run-1" })
     );
+    // A pipe's call rides the booking_call its parent run declares: never support.
+    expect(h.createRun.mock.calls[0][0].support).toBeUndefined();
     expect(values).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "+17585187473",

@@ -35,6 +35,19 @@ export const twilioSendings = pgTable(
     priceUnit: text("price_unit"),
     errorCode: integer("error_code"),
     errorMessage: text("error_message"),
+    // The run THIS service opened for the send (`run_id` above holds the
+    // caller's parent run). The outcome ledger declares on it.
+    sendRunId: text("send_run_id"),
+    // The ONE person the send reached, as the caller named them (a lead in
+    // lead-service). NULL = the caller named nobody: nothing is declared.
+    // (COST-ACCOUNTING-1023, src/lib/outcome-declaration.ts)
+    outcomeSubjectService: text("outcome_subject_service"),
+    outcomeSubjectId: text("outcome_subject_id"),
+    consumedOutcomeKeys: text("consumed_outcome_keys").array(),
+    // Set once runs-service recorded (or already held) the declaration.
+    outcomeDeclaredAt: timestamp("outcome_declared_at", { withTimezone: true }),
+    // A permanent refusal (4xx): stored, logged, never retried.
+    outcomeDeclareError: text("outcome_declare_error"),
     sentAt: timestamp("sent_at", { withTimezone: true }).defaultNow().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()

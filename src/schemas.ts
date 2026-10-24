@@ -18,6 +18,36 @@ registry.registerComponent("securitySchemes", "apiKey", {
 
 // ===== Send SMS =====
 
+// ===== Outcome subject (COST-ACCOUNTING-1023) =====
+
+const OutcomeSubjectSchema = z
+  .object({
+    subjectService: z.string().min(1).openapi({ description: "Service that holds the person, e.g. 'lead-service'" }),
+    subjectId: z.string().min(1).openapi({ description: "The person's id in that service" }),
+  })
+  .openapi({
+    description:
+      "The ONE person this send reaches on a campaign. When set (or when only `leadId` is set, " +
+      "which names the lead in lead-service), a successful send declares `message_sent` for " +
+      "that person on its run to runs-service's production-cost ledger. Omit it for support " +
+      "messages (codes, alerts): nothing is declared. Declared after the send, never blocking it.",
+  });
+
+const outcomeSubjectFields = {
+  leadId: z.string().min(1).optional().openapi({
+    description: "The person's lead id in lead-service. Names the outcome subject when `outcomeSubject` is absent.",
+  }),
+  outcomeSubject: OutcomeSubjectSchema.optional(),
+  consumedOutcomeKeys: z.array(z.string().min(1)).max(20).optional().openapi({
+    description:
+      "Outcome keys (features-service catalogue) this send CONSUMED for the same subject, e.g. ['message_written'] for a written message. Requires a subject.",
+  }),
+};
+
+const consumedNeedsSubject = (d: { consumedOutcomeKeys?: string[]; outcomeSubject?: unknown; leadId?: string }) =>
+  !d.consumedOutcomeKeys?.length || Boolean(d.outcomeSubject || d.leadId);
+const consumedNeedsSubjectMessage = { message: "consumedOutcomeKeys requires outcomeSubject or leadId" };
+
 export const SendSmsRequestSchema = z
   .object({
     parentRunId: z.string().openapi({ description: "Parent run ID" }),
@@ -49,7 +79,9 @@ export const SendSmsRequestSchema = z
       .openapi({
         description: "Which Twilio project/phone number to use",
       }),
+    ...outcomeSubjectFields,
   })
+  .refine(consumedNeedsSubject, consumedNeedsSubjectMessage)
   .openapi("SendSmsRequest");
 
 export type SendSmsRequest = z.infer<typeof SendSmsRequestSchema>;
@@ -211,7 +243,9 @@ export const SendWhatsAppRequestSchema = z
       .string()
       .optional()
       .openapi({ description: "URL for Twilio status callbacks" }),
+    ...outcomeSubjectFields,
   })
+  .refine(consumedNeedsSubject, consumedNeedsSubjectMessage)
   .openapi("SendWhatsAppRequest");
 
 export type SendWhatsAppRequest = z.infer<typeof SendWhatsAppRequestSchema>;

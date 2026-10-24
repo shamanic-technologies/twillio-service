@@ -139,6 +139,26 @@ chat (the same AI brain the dashboard's "Edit with AI" uses, via api-service
   `src/lib/twilio-client.ts` / `src/routes/calls.ts`. Twilio creds come from
   key-service, same as SMS and WhatsApp.
 
+## Outcome ledger (COST-ACCOUNTING-1023, LEDGER-HISTORY-1024)
+Every run of ours states in runs-service's general ledger what it produced, or
+is support, today and in the past (`src/lib/ledger-history.ts`, run after
+`listen` on every boot, idempotent):
+- **`send-sms` / `whatsapp-send`** produce `message_sent` for the person the
+  CALLER names (`leadId` = lead in lead-service, or `outcomeSubject`), plus
+  `consumedOutcomeKeys` (postmark-service's contract). Declared on our own send
+  run (`twilio_sendings.send_run_id`; `run_id` holds the caller's parent),
+  `occurredAt: run_started_at`, after the send, never blocking it. Owed rows
+  are re-declared at boot; a 4xx refusal is stored in `outcome_declare_error`.
+  Unnamed send = nothing declared, never an invented subject.
+- **`whatsapp-inbound`** = the Copilot over WhatsApp: support `copilot`, at run
+  creation (the past by an owner-door selection on the task).
+- **`place-call`** with a parent run: the PARENT (the AI Instant Call pipe's
+  workflow run) declares `booking_call` for the lead; our run declares nothing
+  and rides it. With NO parent run: no pipe ordered it = a staff probe, support
+  `staff_experiment` at creation (the past from `twilio_calls.parent_run_id IS NULL`).
+- Keys come from features-service `/public/catalogue/steps`; a missing key is
+  asked to features-service, never invented here.
+
 ## Key Patterns
 - Zod schemas are the single source of truth for validation + OpenAPI generation
 - Never edit openapi.json manually — it's auto-generated

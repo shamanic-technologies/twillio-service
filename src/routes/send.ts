@@ -11,6 +11,7 @@ import {
   BatchSendSmsRequestSchema,
 } from "../schemas";
 import { errorMessage } from "../lib/db-error";
+import { declareRecordedSend, sendSubjectColumns } from "../lib/outcome-declaration";
 
 const router = Router();
 
@@ -77,10 +78,13 @@ router.post("/send", async (req: Request, res: Response) => {
     }
 
     // Record sending in database
+    const subjectColumns = sendSubjectColumns(data);
     const [record] = await db
       .insert(twilioSendings)
       .values({
         messageSid: result.messageSid!,
+        sendRunId: runId,
+        ...subjectColumns,
         orgId,
         userId,
         runId: data.parentRunId,
@@ -111,6 +115,7 @@ router.post("/send", async (req: Request, res: Response) => {
       } catch (err) {
         console.error("Failed to add costs/complete run:", err);
       }
+      declareRecordedSend({ sendingId: record.id, sendRunId: runId, orgId, ...subjectColumns });
     }
 
     return res.status(200).json({
@@ -180,10 +185,13 @@ router.post("/send/batch", async (req: Request, res: Response) => {
       });
 
       if (result.success) {
+        const subjectColumns = sendSubjectColumns(msg);
         const [record] = await db
           .insert(twilioSendings)
           .values({
             messageSid: result.messageSid!,
+            sendRunId: runId,
+            ...subjectColumns,
             orgId,
             userId,
             runId: msg.parentRunId,
@@ -213,6 +221,7 @@ router.post("/send/batch", async (req: Request, res: Response) => {
           } catch (err) {
             console.error("Failed to add costs/complete run:", err);
           }
+          declareRecordedSend({ sendingId: record.id, sendRunId: runId, orgId, ...subjectColumns });
         }
 
         results.push({
